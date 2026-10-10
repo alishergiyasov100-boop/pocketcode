@@ -87,6 +87,86 @@ function probeModels(baseUrl, token) {
   });
 }
 
+/* ---------- жив ли демон ---------- */
+function get(url, ms) {
+  return new Promise((res) => {
+    const mod = url.startsWith("https") ? require("https") : require("http");
+    const req = mod.get(url, { headers: { "user-agent": "pocketcode" } }, (r) => {
+      let b = "";
+      r.on("data", (d) => (b += d));
+      r.on("end", () => { try { res(JSON.parse(b)); } catch (e) { res(null); } });
+    });
+    req.on("error", () => res(null));
+    req.setTimeout(ms || 2500, () => { req.destroy(); res(null); });
+  });
+}
+
+function pidAlive() {
+  try {
+    const pid = parseInt(fs.readFileSync(PID, "utf8"), 10);
+    process.kill(pid, 0);
+    return pid;
+  } catch (e) { return 0; }
+}
+
+function human(n) {
+  if (n == null) return "—";
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+  if (n >= 1e3) return Math.round(n / 1e3) + "K";
+  return String(n);
+}
+
+function since(ms) {
+  if (!ms) return "—";
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return s + "s";
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + "m";
+  return Math.floor(m / 60) + "h " + (m % 60) + "m";
+}
+
+async function status(quiet) {
+  const cfg = config.load();
+  const base = "http://127.0.0.1:" + cfg.port;
+  const st = await get(base + "/api/status", 2500);
+  const pid = pidAlive();
+
+  if (!st) {
+    if (!quiet) {
+      console.log("\n  " + C.bad("not running") + C.dim("   nothing is listening on " + cfg.port));
+      if (pid) console.log("  " + C.warn("stale pid " + pid) + C.dim("   the process died without cleaning up"));
+      console.log("\n  start it with " + C.b("pocketcode") + "\n");
+    }
+    return false;
+  }
+
+  const us = await get(base + "/api/usage", 2500);
+  let gw = null;
+  if (cfg.baseUrl) {
+    const t = Date.now();
+    const m = await get(cfg.baseUrl.replace(/\/+$/, "") + "/v1/models", 8000);
+    gw = m ? (Date.now() - t) + "ms" : null;
+  }
+
+  console.log("");
+  console.log("  " + C.ok("running") + C.dim("       pid " + (pid || "?") + " · " + base));
+  console.log("  project     " + C.b(st.project.split("/").pop()) + C.dim("  " + st.project));
+  console.log("  engine      " + st.model + (cfg.baseUrl ? C.dim("  via your gateway") : C.dim("  via your claude login")));
+  if (cfg.baseUrl) {
+    console.log("  gateway     " + (gw ? C.ok("answering") + C.dim(" in " + gw) : C.bad("no answer")) + C.dim("  " + cfg.baseUrl));
+  }
+  console.log("  agent       " + (st.busy ? C.warn("working right now") : "idle"));
+  console.log("  app open    " + (st.clients ? C.ok(st.clients + " connected") : C.dim("nobody")));
+  if (us && us.session) {
+    console.log("  session     " + ("$" + (us.session.cost || 0).toFixed(2)) +
+      C.dim("  " + human(us.session.tokens) + " tokens · " + us.session.turns + " turns · " + since(us.session.elapsed)));
+  } else {
+    console.log("  session     " + C.dim("not started yet"));
+  }
+  console.log("\n  open " + C.b(base) + " or tap the app\n");
+  return true;
+}
+
 /* ---------- мастер настройки ---------- */
 async function setup() {
   console.log(C.b("\nPocketCode setup\n"));
@@ -131,8 +211,14 @@ async function setup() {
 }
 
 /* ---------- запуск ---------- */
-function start(cfg) {
+async function start(cfg) {
   cfg = cfg || config.load();
+  const already = await get("http://127.0.0.1:" + cfg.port + "/api/status", 1500);
+  if (already) {
+    console.log("\n  " + C.ok("already running") + C.dim("   nothing to do"));
+    await status(false);
+    return;
+  }
   if (cfg.wakeLock && has("termux-wake-lock")) {
     try { execSync("termux-wake-lock", { stdio: "ignore" }); } catch (e) {}
   }
@@ -186,11 +272,15 @@ function widget() {
   const cmd = process.argv[2];
   if (cmd === "setup") { await setup(); return; }
   if (cmd === "doctor") { doctor(); return; }
+  if (cmd === "status" || cmd === "st") { await status(); return; }
+  if (cmd === "restart") { stop(); await new Promise((r) => setTimeout(r, 1200)); await start(); return; }
   if (cmd === "stop") { stop(); return; }
   if (cmd === "widget") { widget(); return; }
   if (cmd === "-h" || cmd === "--help") {
     console.log("\n" + C.b("pocketcode") + "          set up if needed, then run\n" +
       "  setup         change project, gateway, model\n" +
+      "  status        is it running, on what, how much spent\n" +
+      "  restart       stop and start again\n" +
       "  start         run without the wizard\n" +
       "  doctor        check what is missing\n" +
       "  widget        home-screen shortcut for Termux\n" +
@@ -199,5 +289,5 @@ function widget() {
   }
   let cfg = config.load();
   if (!config.exists() && cmd !== "start") cfg = await setup();
-  start(cfg);
+  await start(cfg);
 })();

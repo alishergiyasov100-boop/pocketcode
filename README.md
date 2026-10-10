@@ -26,10 +26,26 @@ Open **http://127.0.0.1:4848** and add it to your home screen — it runs standa
 | | |
 |---|---|
 | `pocketcode` | set up if needed, then run |
+| `pocketcode status` | is it running, on what, how much it has spent |
 | `pocketcode setup` | change project, gateway or model |
+| `pocketcode restart` | stop and start again |
 | `pocketcode doctor` | show what is missing |
 | `pocketcode widget` | home-screen shortcut via Termux:Widget |
 | `pocketcode stop` | stop the daemon |
+
+`status` is the one to reach for when you are not sure anything is alive:
+
+```
+  running       pid 17609 · http://127.0.0.1:4848
+  project       noteclip  /home/you/projects/noteclip
+  engine        claude-sonnet-5  via your gateway
+  gateway       answering in 310ms
+  agent         idle
+  app open      1 connected
+  session       $0.31  48K tokens · 6 turns · 7m
+```
+
+Running `pocketcode` while it is already up says so instead of failing.
 
 ## Engines
 
