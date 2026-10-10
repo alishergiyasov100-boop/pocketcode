@@ -75,8 +75,14 @@
   var chips = el("div", "chips");
   foot.appendChild(chips);
   var input = el("div", "input");
-  var ph = el("div", "input__ph");
-  input.appendChild(ph);
+  var ta = document.createElement("textarea");
+  ta.className = "input__ta";
+  ta.rows = 1;
+  ta.setAttribute("enterkeyhint", "send");
+  ta.setAttribute("autocapitalize", "sentences");
+  ta.setAttribute("autocomplete", "off");
+  ta.setAttribute("spellcheck", "false");
+  input.appendChild(ta);
   var sendBtn = el("button", "send"); sendBtn.type = "button"; sendBtn.setAttribute("aria-label", "Send");
   input.appendChild(sendBtn);
   foot.appendChild(input);
@@ -311,7 +317,7 @@
               setBusy(false);
               petAct("cheer");
               fillChips(C.session.chips);
-              ph.firstChild.textContent = C.session.placeholder;
+              ta.placeholder = C.session.placeholder;
             });
           });
         }, 320);
@@ -394,10 +400,34 @@
     });
   }
 
-  sendBtn.addEventListener("click", function () {
-    var first = chips.querySelector(".chip");
-    if (first) send(first.textContent);
+  function grow() {
+    ta.style.height = "auto";
+    ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
+  }
+
+  function submit() {
+    var v = ta.value.trim();
+    if (!v) {
+      var first = chips.querySelector(".chip");
+      if (first) send(first.textContent);
+      return;
+    }
+    ta.value = "";
+    grow();
+    send(v);
+  }
+
+  ta.addEventListener("input", grow);
+  ta.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
   });
+  sendBtn.addEventListener("click", submit);
+
+  /* клавиатура поднимается — держим ленту внизу */
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", function () { setTimeout(scroll, 60); });
+  }
+  ta.addEventListener("focus", function () { setTimeout(scroll, 300); });
 
   /* ---------- пустой экран ---------- */
   var idle;
@@ -504,8 +534,7 @@
     });
   });
   sendBtn.appendChild(px("send", 2, "#000000"));
-  ph.appendChild(el("span", "", C.session.freshPlaceholder));
-  ph.appendChild(ind("pc-caret"));
+  ta.placeholder = C.session.freshPlaceholder;
   fillChips(C.session.freshChips);
   showIdle();
   setStrip(null);
@@ -528,6 +557,8 @@
       scroll();
     },
     setSender: function (fn) { SEND = fn; },
+    input: ta,
+    focus: function () { ta.focus(); },
     state: st
   };
 

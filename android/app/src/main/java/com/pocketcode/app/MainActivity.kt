@@ -50,6 +50,9 @@ class MainActivity : AppCompatActivity() {
             settings.mediaPlaybackRequiresUserGesture = false
             setBackgroundColor(Color.BLACK)
             overScrollMode = View.OVER_SCROLL_NEVER
+            isFocusable = true
+            isFocusableInTouchMode = true
+            settings.setSupportZoom(false)
             webChromeClient = WebChromeClient()
             webViewClient = object : WebViewClient() {
                 override fun onReceivedError(v: WebView?, code: Int, d: String?, u: String?) {
@@ -149,6 +152,7 @@ class MainActivity : AppCompatActivity() {
                         gate.visibility = View.GONE
                         web.visibility = View.VISIBLE
                         web.loadUrl(url)
+                        web.requestFocus()
                     }
                     break
                 }

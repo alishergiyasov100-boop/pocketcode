@@ -1,5 +1,5 @@
 /* ============================================================
-   PocketCrew — минимальная пиксельная версия.
+   PocketCode — минимальная пиксельная версия.
    Один экран, одна лента. Хром набран растровым шрифтом,
    геометрия жёсткая: прямые грани, 1px линии, без мягких теней.
    ============================================================ */
@@ -299,14 +299,25 @@ button {
   background: var(--s1);
   padding: 8px 8px 8px 16px;
 }
-.input__ph {
-  flex: 1; min-width: 0;
-  display: flex; align-items: center; gap: 2px;
-  font-size: 13.5px;
-  color: var(--t3);
-  white-space: nowrap; overflow: hidden;
+.input__ta {
+  flex: 1;
+  min-width: 0;
+  display: block;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--t1);
+  font-family: var(--ui);
+  font-size: 15px;
+  line-height: 1.4;
+  padding: 7px 0;
+  max-height: 120px;
+  overflow-y: auto;
+  scrollbar-width: none;
 }
-.input__ph .pc { --size: 13px; }
+.input__ta::-webkit-scrollbar { display: none; }
+.input__ta::placeholder { color: var(--t3); }
 
 .send {
   width: 36px; height: 36px;
@@ -457,7 +468,7 @@ button {
 
 /* ===== ANIM LIBRARY ===== */
 /* ==========================================================================
-   PocketCrew — micro-animation library
+   PocketCode — micro-animation library
    Pure CSS. currentColor-driven. Size-driven by --size (default 18px).
    Structural mask colors (transparent/black) are geometry, never theme color.
    ========================================================================== */
