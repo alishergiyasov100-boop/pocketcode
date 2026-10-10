@@ -165,7 +165,7 @@
       ? H.fmt.pctNum(pct) + '% used'
       : 'usage unknown');
     var f = H.el('i');
-    f.style.width = isNum(pct) ? clampPct(pct) + '%' : '0%';
+    f.style.setProperty('--pc-pct', isNum(pct) ? (clampPct(pct) / 100).toFixed(4) : '0');
     w.appendChild(f);
     return w;
   }

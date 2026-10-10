@@ -36,10 +36,11 @@
 .pc-meter > i{
   display:block;
   height:100%;
-  width:0;
-  border-radius:999px;
+  width:100%;
+  transform-origin:left center;
+  transform:scaleX(var(--pc-pct, 0));
   background:var(--ink);
-  transition:width .35s cubic-bezier(.2,.7,.2,1);
+  transition:transform .35s cubic-bezier(.2,.7,.2,1);
 }
 .pc-meter--lg{ height:4px; }
 .pc-meter[data-tone="warn"] > i{ background:var(--warn); }
