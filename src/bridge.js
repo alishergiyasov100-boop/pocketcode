@@ -91,6 +91,7 @@ class Session extends EventEmitter {
     this.cost = 0;
     this.turns = 0;
     this.tokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+    this.badTools = 0;
     this.startedAt = Date.now();
   }
 
@@ -198,6 +199,13 @@ class Session extends EventEmitter {
         } else if (part.type === "thinking" && part.thinking) {
           this.emit("ui", { type: "think", text: part.thinking });
         } else if (part.type === "tool_use") {
+          /* пустое имя инструмента = шлюз покрошил потоковый вызов на куски.
+             Дальше модель будет долбиться в стену, так что рвём ход сами. */
+          if (!part.name) {
+            this.badTools++;
+            if (this.badTools >= 3) this._toolWall();
+            continue;
+          }
           const item = {
             type: "tool",
             id: part.id,
@@ -221,6 +229,12 @@ class Session extends EventEmitter {
         const text = typeof part.content === "string"
           ? part.content
           : (part.content || []).map((c) => c.text || "").join("\n");
+        if (/No such tool available/i.test(text)) {
+          this.badTools++;
+          if (this.badTools >= 3) this._toolWall();
+        } else if (!part.is_error) {
+          this.badTools = 0;
+        }
         const ok = okFromResult(text, part.is_error);
         this.pending.delete(part.tool_use_id);
         this.emit("ui", {
@@ -257,6 +271,26 @@ class Session extends EventEmitter {
     if (ev.type === "stream_event") { this.emit("delta", ev); return; }
   }
 }
+
+/* Останавливаем бесполезный цикл и объясняем по-человечески, что сломалось. */
+Session.prototype._toolWall = function () {
+  if (this._walled) return;
+  this._walled = true;
+  this.emit("ui", {
+    type: "turn_done",
+    ok: false,
+    wall: "tools",
+    text:
+      "The engine kept handing back broken tool calls, so I stopped it before it burned " +
+      "more of your allowance.\n\nThis is the model endpoint, not your project: it is " +
+      "sending tool calls in pieces that cannot be put back together. Try another model, " +
+      "or a provider whose streaming is sane.",
+    cost: this.cost,
+    session: this.id
+  });
+  this.interrupt();
+  setTimeout(() => { this.badTools = 0; this._walled = false; }, 2000);
+};
 
 Session.prototype.usage = function () {
   var t = this.tokens;

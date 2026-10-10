@@ -190,7 +190,10 @@ async function setup() {
     const models = await probeModels(cfg.baseUrl, cfg.token);
     console.log(models.length ? C.ok(models.length + " models") : C.warn("no answer"));
     if (models.length) {
-      const pick = models.filter((m) => /claude|gpt|kimi|glm|grok|gemini/i.test(m)).slice(0, 14);
+      /* Claude-модели идут первыми: у них нет перевода вызовов инструментов,
+         а значит нет и целого класса поломок на чужих шлюзах. */
+      const all = models.filter((m) => /claude|gpt|kimi|glm|grok|gemini|deepseek|llama|mistral/i.test(m));
+      const pick = all.filter((m) => /claude/i.test(m)).concat(all.filter((m) => !/claude/i.test(m))).slice(0, 14);
       pick.forEach((m, i) => console.log("    " + C.dim(String(i + 1).padStart(2)) + "  " + m));
       const n = await ask(rl, "pick a number (or type a model id)", cfg.model || "1");
       cfg.model = /^\d+$/.test(n) ? (pick[(n | 0) - 1] || pick[0]) : n;
