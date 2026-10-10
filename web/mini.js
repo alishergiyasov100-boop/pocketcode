@@ -1,7 +1,8 @@
 /* ============================================================
-   PocketCode — минимальная версия. Один экран, одна лента.
-   Решения (план, вопрос) приходят карточками прямо в ленту,
-   поэтому отдельных экранов нет вообще.
+   PocketCode — один экран, одна лента.
+   Структура чата и композера снята с референсов: ответ агента
+   обычным текстом, сообщение пользователя пилюлей справа,
+   композер карточкой с панелью под строкой ввода.
    ============================================================ */
 (function () {
   "use strict";
@@ -11,54 +12,65 @@
   var REDUCED = E.REDUCED;
   var C = window.PC_CONTENT;
 
-  /* ---------- пиксельные иконки 9x9 ---------- */
-  var ICON = {
-    dots:  "........." + "....##..." + "....##..." + "........." + "....##..." + "....##..." + "........." + "....##..." + "....##...",
-    plus:  "........." + "....##..." + "....##..." + "....##..." + ".########" + ".########" + "....##..." + "....##..." + "....##...",
-    send:  "........." + ".##......" + ".####...." + ".######.." + ".########" + ".######.." + ".####...." + ".##......" + ".........",
-    check: "........." + ".......##" + "......##." + ".##..##.." + ".#####..." + "..###...." + "...#....." + "........." + ".........",
-    cross: "........." + ".##....##" + ".##....##" + "..##..##." + "...####.." + "..##..##." + ".##....##" + ".##....##" + ".........",
-    chev:  "........." + "..##....." + "...##...." + "....##..." + ".....##.." + "....##..." + "...##...." + "..##....." + ".........",
-    mic:   "...###..." + "...###..." + "...###..." + "...###..." + ".#.###.#." + ".#.....#." + "..#####.." + "....#...." + "...###...",
-    stop:  "........." + ".#######." + ".#######." + ".#######." + ".#######." + ".#######." + ".#######." + ".#######." + ".........",
-    dot:   "........." + "........." + "...###..." + "..#####.." + "..#####.." + "..#####.." + "...###..." + "........." + ".........",
-    burger:"........." + "........." + ".#######." + "........." + ".#######." + "........." + ".#######." + "........." + ".........",
-    undo:  "........." + "...#....." + "..##....." + ".#######." + "..##...#." + "...#...#." + ".....###." + "........." + "........."
+  /* ---------- иконки линиями, как в референсах ---------- */
+  var P = {
+    burger: "M4 7h16M4 12h16M4 17h10",
+    down:   "M6 9l6 6 6-6",
+    right:  "M9 6l6 6-6 6",
+    plus:   "M12 5v14M5 12h14",
+    mic:    "M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zM5 11a7 7 0 0 0 14 0M12 18v3",
+    send:   "M5 12h14M13 6l6 6-6 6",
+    check:  "M4 12.5 9.5 18 20 6.5",
+    cross:  "M6 6l12 12M18 6 6 18",
+    clock:  "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2",
+    dot:    "M12 12h.01",
+    sun:    "M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19",
+    moon:   "M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"
   };
 
-  function px(name, k, color) {
-    var g = ICON[name] || ICON.dot, n = 9;
-    var c = document.createElement("canvas");
-    c.className = "px";
-    c.width = n * k; c.height = n * k;
-    c.style.width = (n * k) + "px"; c.style.height = (n * k) + "px";
-    var x = c.getContext("2d");
-    x.fillStyle = color || "#fff";
-    for (var i = 0; i < g.length; i++) {
-      if (g.charAt(i) !== "#") continue;
-      x.fillRect((i % n) * k, Math.floor(i / n) * k, k, k);
-    }
-    return c;
+  function ic(name, size, w, color) {
+    var ns = "http://www.w3.org/2000/svg";
+    var v = document.createElementNS(ns, "svg");
+    v.setAttribute("viewBox", "0 0 24 24");
+    v.setAttribute("width", size || 20);
+    v.setAttribute("height", size || 20);
+    v.setAttribute("fill", "none");
+    v.setAttribute("aria-hidden", "true");
+    var p = document.createElementNS(ns, "path");
+    p.setAttribute("d", P[name] || P.dot);
+    p.setAttribute("stroke", color || "currentColor");
+    p.setAttribute("stroke-width", w || 1.8);
+    p.setAttribute("stroke-linecap", "round");
+    p.setAttribute("stroke-linejoin", "round");
+    v.appendChild(p);
+    return v;
   }
-
-  /* подписи набраны растровым шрифтом — весь хром пиксельный */
-  function lab(text, k, color) { return E.textCanvas(String(text), k || 2, color || "#F2F2F5", 1); }
-
-  function labIn(parent, text, k, color) { parent.appendChild(lab(text, k, color)); return parent; }
 
   /* ---------- каркас ---------- */
   var app = el("div", "app");
   document.body.appendChild(app);
 
   var bar = el("div", "bar");
-  var burgerBtn = el("button", "ibtn"); burgerBtn.type = "button"; burgerBtn.setAttribute("aria-label", "Menu");
+  var burgerBtn = el("button", "ibtn"); burgerBtn.type = "button";
+  burgerBtn.setAttribute("aria-label", "Menu");
+  burgerBtn.appendChild(ic("burger", 21));
   bar.appendChild(burgerBtn);
   bar.appendChild(el("div", "bar__sp"));
-  var mark = el("div", "bar__mark");
-  bar.appendChild(mark);
+
+  var modelPill = el("button", "mpill"); modelPill.type = "button";
+  var mpBrand = el("span", "mpill__b");
+  var mpName = el("span", "mpill__n");
+  modelPill.appendChild(mpBrand);
+  modelPill.appendChild(mpName);
+  var mpChev = el("span", "mpill__c"); mpChev.appendChild(ic("down", 15, 2));
+  modelPill.appendChild(mpChev);
+  bar.appendChild(modelPill);
+
   bar.appendChild(el("div", "bar__sp"));
-  var menuBtn = el("button", "ibtn"); menuBtn.type = "button"; menuBtn.setAttribute("aria-label", "Session actions");
-  bar.appendChild(menuBtn);
+  var histBtn = el("button", "ibtn"); histBtn.type = "button";
+  histBtn.setAttribute("aria-label", "Sessions");
+  histBtn.appendChild(ic("clock", 20));
+  bar.appendChild(histBtn);
   app.appendChild(bar);
 
   var strip = el("div", "strip"); strip.setAttribute("data-on", "false");
@@ -74,6 +86,7 @@
   foot.appendChild(queue);
   var chips = el("div", "chips");
   foot.appendChild(chips);
+
   var input = el("div", "input");
   var ta = document.createElement("textarea");
   ta.className = "input__ta";
@@ -83,8 +96,31 @@
   ta.setAttribute("autocomplete", "off");
   ta.setAttribute("spellcheck", "false");
   input.appendChild(ta);
-  var sendBtn = el("button", "send"); sendBtn.type = "button"; sendBtn.setAttribute("aria-label", "Send");
-  input.appendChild(sendBtn);
+
+  var ibar = el("div", "input__bar");
+  var plusBtn = el("button", "cbtn"); plusBtn.type = "button";
+  plusBtn.setAttribute("aria-label", "Attach");
+  plusBtn.appendChild(ic("plus", 18, 2));
+  ibar.appendChild(plusBtn);
+
+  var modelMini = el("button", "modelmini"); modelMini.type = "button";
+  var mmName = el("span", "", "");
+  modelMini.appendChild(mmName);
+  modelMini.appendChild(ic("down", 13, 2));
+  ibar.appendChild(modelMini);
+
+  ibar.appendChild(el("div", "input__sp"));
+  var micBtn = el("button", "cbtn"); micBtn.type = "button";
+  micBtn.setAttribute("aria-label", "Voice");
+  micBtn.appendChild(ic("mic", 17));
+  ibar.appendChild(micBtn);
+
+  var sendBtn = el("button", "send"); sendBtn.type = "button";
+  sendBtn.setAttribute("aria-label", "Send");
+  sendBtn.appendChild(ic("send", 17, 2));
+  ibar.appendChild(sendBtn);
+
+  input.appendChild(ibar);
   foot.appendChild(input);
   app.appendChild(foot);
 
@@ -92,48 +128,49 @@
   app.appendChild(scrim);
   var sheet = el("div", "sheet"); sheet.setAttribute("data-on", "false");
   app.appendChild(sheet);
-  var toastEl = el("div", "toast"); toastEl.setAttribute("data-on", "false"); toastEl.setAttribute("role", "status");
+  var toastEl = el("div", "toast"); toastEl.setAttribute("data-on", "false");
+  toastEl.setAttribute("role", "status");
   app.appendChild(toastEl);
 
   /* ---------- состояние ---------- */
-  var st = { busy: false, started: false, q: [] };
-  var SEND = null;   /* в живом режиме сюда подставляется отправка на демон */
+  var st = { busy: false, started: false, q: [], model: "Claude Opus 5", brand: "anthropic" };
+  var SEND = null;
 
   function scroll() { feed.scrollTop = feed.scrollHeight; }
 
   var toastT;
   function toast(text, tone) {
     toastEl.textContent = "";
-    toastEl.appendChild(px(tone === "bad" ? "cross" : "check", 2, tone === "bad" ? "#FF6B6B" : "#5BD68F"));
+    toastEl.appendChild(ic(tone === "bad" ? "cross" : "check", 17, 2.2,
+      tone === "bad" ? "var(--bad)" : "var(--ok)"));
     toastEl.appendChild(el("span", "", text));
     toastEl.setAttribute("data-on", "true");
     clearTimeout(toastT);
     toastT = setTimeout(function () { toastEl.setAttribute("data-on", "false"); }, 2600);
   }
 
-  function setStrip(text, tone, spinner) {
-    if (!text) { strip.setAttribute("data-on", "false"); return; }
-    strip.textContent = "";
-    strip.setAttribute("data-tone", tone || "");
-    strip.appendChild(ind(spinner || "pc-ring-px"));
-    strip.appendChild(lab(text, 2, tone === "wait" ? "#F2C14E" : tone === "ok" ? "#5BD68F" : "#F2F2F5"));
-    strip.appendChild(el("div", "strip__sp"));
-    var t = lab(stripClock(), 2, "#5A5A66");
-    strip.appendChild(t);
-    strip.setAttribute("data-on", "true");
-    strip._t = t;
-  }
   var t0 = 0;
-  function stripClock() {
+  function clock() {
     if (!t0) return "0:00";
     var s = Math.floor((Date.now() - t0) / 1000);
     return Math.floor(s / 60) + ":" + (s % 60 < 10 ? "0" : "") + (s % 60);
   }
+
+  function setStrip(text, tone, spin) {
+    if (!text) { strip.setAttribute("data-on", "false"); return; }
+    strip.textContent = "";
+    strip.setAttribute("data-tone", tone || "");
+    strip.appendChild(ind(spin || "pc-ring-px"));
+    strip.appendChild(el("span", "", text));
+    strip.appendChild(el("div", "strip__sp"));
+    var t = el("span", "strip__t", clock());
+    strip.appendChild(t);
+    strip._t = t;
+    strip.setAttribute("data-on", "true");
+  }
   setInterval(function () {
     if (strip.getAttribute("data-on") !== "true" || !strip._t || !t0) return;
-    var fresh = lab(stripClock(), 2, "#5A5A66");
-    strip.replaceChild(fresh, strip._t);
-    strip._t = fresh;
+    strip._t.textContent = clock();
   }, 1000);
 
   /* ---------- печать по буквам ---------- */
@@ -179,9 +216,10 @@
   }
 
   function addStep(text, ok) {
-    var n = el("div", "step " + (ok === false ? "step--bad" : "step--ok"));
+    var n = el("div", "step" + (ok === false ? " step--bad" : ""));
     var g = el("span", "step__g");
-    g.appendChild(px(ok === false ? "cross" : "check", 2, ok === false ? "#FF6B6B" : "#5BD68F"));
+    g.appendChild(ic(ok === false ? "cross" : "check", 15, 2.2,
+      ok === false ? "var(--bad)" : "var(--ok)"));
     n.appendChild(g);
     n.appendChild(el("span", "", text));
     feed.appendChild(n); scroll();
@@ -191,7 +229,8 @@
   function addTool(label, out) {
     var w = el("div", "");
     var b = el("button", "tool"); b.type = "button";
-    b.appendChild(px("chev", 2, "#5A5A66"));
+    var g = ic("right", 14, 2);
+    b.appendChild(g);
     b.appendChild(el("span", "", label));
     var o = el("div", "toolout", out || ""); o.setAttribute("data-on", "false");
     b.addEventListener("click", function () {
@@ -200,16 +239,16 @@
       scroll();
     });
     w.appendChild(b); w.appendChild(o);
-    w._out = o; w._glyph = b.firstChild;
+    w._out = o; w._glyph = g;
     feed.appendChild(w); scroll();
     return w;
   }
 
-  function addCard(head, build) {
+  function addCard(head, tag, build) {
     var c = el("div", "card");
     var h = el("div", "card__h");
-    h.appendChild(px("dot", 2, "#F2F2F5"));
-    h.appendChild(lab(head, 2, "#F2F2F5"));
+    h.appendChild(el("span", "card__hn", head));
+    if (tag) h.appendChild(el("span", "card__tag", tag));
     c.appendChild(h);
     var b = el("div", "card__b");
     build(b, c);
@@ -219,23 +258,21 @@
   }
 
   function button(text, primary, onClick) {
-    var b = el("button", "btn btn--w" + (primary ? " btn--p" : "")); b.type = "button";
-    b.appendChild(lab(text, 2, primary ? "#000000" : "#F2F2F5"));
+    var b = el("button", "btn" + (primary ? " btn--p" : ""), text);
+    b.type = "button";
     b.addEventListener("click", onClick);
     return b;
   }
 
-  /* ---------- сценарий ---------- */
+  /* ---------- сценарий демо ---------- */
   function planCard(onGo) {
-    addCard("WANTS TO DO THIS", function (b) {
+    addCard("The plan", "nothing touched yet", function (b) {
       b.appendChild(el("div", "card__t", C.plan.title));
       b.appendChild(el("div", "card__d", C.plan.intro));
       var list = el("div", "plan");
       C.plan.items.forEach(function (x, i) {
         var r = el("div", "plan__r");
-        var n = el("span", "plan__n");
-        n.appendChild(lab(String(i + 1), 2, "#5A5A66"));
-        r.appendChild(n);
+        r.appendChild(el("span", "plan__n", String(i + 1)));
         var xx = el("span", "plan__x");
         xx.appendChild(el("span", "plan__t", x.t));
         xx.appendChild(el("span", "plan__d", x.d));
@@ -243,31 +280,26 @@
         list.appendChild(r);
       });
       b.appendChild(list);
-      b.appendChild(el("div", "card__d", C.plan.touch));
+      var f = el("div", "facts");
+      f.appendChild(el("span", "", C.plan.touch));
+      b.appendChild(f);
       var acts = el("div", "acts");
-      var go = button("GO AHEAD", true, function () {
-        acts.remove();
-        onGo();
-      });
-      var no = button("ANOTHER WAY", false, function () {
+      acts.appendChild(button("Go ahead", true, function () { acts.remove(); onGo(); }));
+      acts.appendChild(button("Another way", false, function () {
         acts.remove();
         addSay("Alright — tell me how you'd rather do it.");
         setBusy(false);
-      });
-      acts.appendChild(go); acts.appendChild(no);
+      }));
       b.appendChild(acts);
     });
   }
 
   function askCard(q, options, onPick) {
-    addCard("NEEDS YOU", function (b) {
+    addCard("Needs you", "waiting", function (b) {
       b.appendChild(el("div", "card__t", q));
       var acts = el("div", "acts");
       options.forEach(function (o, i) {
-        acts.appendChild(button(o.t, i === 0, function () {
-          acts.remove();
-          onPick(o);
-        }));
+        acts.appendChild(button(o.t, i === 0, function () { acts.remove(); onPick(o); }));
       });
       b.appendChild(acts);
     });
@@ -275,13 +307,9 @@
 
   function setBusy(on) {
     st.busy = on;
-    if (!on) {
-      setStrip("WAITING ON YOU", "wait", "pc-dots");
-      pump();
-    }
+    if (!on) { setStrip("Waiting on you", "wait", "pc-dots"); pump(); }
   }
 
-  /* проигрываем шаги вживую, один за другим */
   function play(list, done) {
     var i = 0;
     (function run() {
@@ -291,10 +319,10 @@
       if (e.type === "step") {
         addStep(e.text, e.tone !== "bad");
         if (e.tone === "bad") petAct("panic"); else if (/green|done/i.test(e.text)) petAct("cheer");
-        setTimeout(run, REDUCED ? 0 : 780);
+        setTimeout(run, REDUCED ? 0 : 760);
         return;
       }
-      if (e.type === "tool") { addTool(e.label, e.out); setTimeout(run, REDUCED ? 0 : 620); return; }
+      if (e.type === "tool") { addTool(e.label, e.out); setTimeout(run, REDUCED ? 0 : 600); return; }
       setTimeout(run, 300);
     })();
   }
@@ -305,14 +333,14 @@
     st.started = true;
     setBusy(true);
     t0 = Date.now();
-    setStrip("THINKING", "", "pc-ring-px");
+    setStrip("Thinking", "", "pc-ring-px");
     petAct("read");
     addYou(text);
     setTimeout(function () {
       addSay("Let me look at it first.", function () {
         setTimeout(function () {
           planCard(function () {
-            setStrip("WORKING", "", "pc-ring-px");
+            setStrip("Working", "", "pc-ring-px");
             play(FIRST, function () {
               setBusy(false);
               petAct("cheer");
@@ -329,19 +357,14 @@
     var f = C.session.followups[text];
     setBusy(true);
     t0 = Date.now();
-    setStrip("WORKING", "", "pc-ring-px");
+    setStrip("Working", "", "pc-ring-px");
     addYou(text);
     petAct("read");
-
     if (/ship it/i.test(text)) {
       setTimeout(function () {
         askCard("Straight to main, or open a pull request?", [
-          { t: "OPEN A PR", d: "safer" },
-          { t: "STRAIGHT TO MAIN", d: "no review" }
-        ], function (o) {
-          addStep("You chose: " + o.t.toLowerCase(), true);
-          runFollow(f);
-        });
+          { t: "Open a PR" }, { t: "Straight to main" }
+        ], function (o) { addStep("You chose: " + o.t.toLowerCase(), true); runFollow(f); });
       }, 500);
       return;
     }
@@ -363,16 +386,10 @@
   }
 
   function send(text) {
-    if (st.busy) {
-      st.q.push(text);
-      drawQueue();
-      toast("Queued — it'll read it next");
-      return;
-    }
+    if (st.busy) { st.q.push(text); drawQueue(); toast("Queued — it'll read it next"); return; }
     clearIdle();
     if (SEND) { st.started = true; SEND(text); return; }
-    if (!st.started) firstRun(text);
-    else followUp(text);
+    if (!st.started) firstRun(text); else followUp(text);
   }
 
   function pump() {
@@ -386,11 +403,37 @@
     queue.textContent = "";
     queue.setAttribute("data-on", String(st.q.length > 0));
     if (!st.q.length) return;
-    queue.appendChild(lab("QUEUED " + st.q.length, 2, "#8E8E99"));
+    queue.appendChild(ind("pc-dots"));
     queue.appendChild(el("span", "", st.q[0]));
   }
 
-  /* ---------- чипы и ввод ---------- */
+  /* ---------- ввод ---------- */
+  function grow() {
+    ta.style.height = "auto";
+    ta.style.height = Math.min(ta.scrollHeight, 116) + "px";
+  }
+  function submit() {
+    var v = ta.value.trim();
+    if (!v) { var f = chips.querySelector(".chip"); if (f) send(f.textContent); return; }
+    ta.value = "";
+    grow();
+    send(v);
+  }
+  ta.addEventListener("input", grow);
+  ta.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
+  });
+  sendBtn.addEventListener("click", submit);
+  ta.addEventListener("focus", function () { setTimeout(scroll, 300); });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", function () { setTimeout(scroll, 60); });
+  }
+  plusBtn.addEventListener("click", function () {
+    openSheet("Attach", C.attach.map(function (a) { return { t: a.t }; }),
+      function (r) { toast(r.t + " attached"); });
+  });
+  micBtn.addEventListener("click", function () { toast("Voice input is not wired yet"); });
+
   function fillChips(list) {
     chips.textContent = "";
     list.forEach(function (c) {
@@ -400,35 +443,6 @@
     });
   }
 
-  function grow() {
-    ta.style.height = "auto";
-    ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
-  }
-
-  function submit() {
-    var v = ta.value.trim();
-    if (!v) {
-      var first = chips.querySelector(".chip");
-      if (first) send(first.textContent);
-      return;
-    }
-    ta.value = "";
-    grow();
-    send(v);
-  }
-
-  ta.addEventListener("input", grow);
-  ta.addEventListener("keydown", function (e) {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
-  });
-  sendBtn.addEventListener("click", submit);
-
-  /* клавиатура поднимается — держим ленту внизу */
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener("resize", function () { setTimeout(scroll, 60); });
-  }
-  ta.addEventListener("focus", function () { setTimeout(scroll, 300); });
-
   /* ---------- пустой экран ---------- */
   var idle;
   function showIdle() {
@@ -436,18 +450,18 @@
     var p = el("div", "idle__pet");
     E.pet(p, E.active, "idle", 4);
     idle.appendChild(p);
-    idle.appendChild(lab("WHAT SHOULD IT DO?", 2, "#F2F2F5"));
-    idle.appendChild(lab("NOTHING IS RUNNING", 2, "#5A5A66"));
+    var h = new Date().getHours();
+    var when = h < 6 ? "Still up" : h < 12 ? "Good morning" : h < 19 ? "Good afternoon" : "Good evening";
+    idle.appendChild(el("div", "idle__hi", when + ", Alisher"));
+    idle.appendChild(el("div", "idle__sub", "Say what needs doing."));
     feed.appendChild(idle);
   }
   function clearIdle() { if (idle) { idle.remove(); idle = null; } }
 
-  /* ---------- нижний лист ---------- */
+  /* ---------- листы ---------- */
   function openSheet(title, rows, onPick) {
     sheet.textContent = "";
-    var k = el("div", "sheet__k");
-    k.appendChild(lab(title, 2, "#8E8E99"));
-    sheet.appendChild(k);
+    sheet.appendChild(el("div", "sheet__k", title));
     rows.forEach(function (r) {
       var b = el("button", "row"); b.type = "button";
       if (r.brand) { var g = el("span", "row__g"); g.appendChild(E.brand(r.brand, 18)); b.appendChild(g); }
@@ -456,7 +470,7 @@
       if (r.d) x.appendChild(el("span", "row__d", r.d));
       b.appendChild(x);
       var g2 = el("span", "row__g");
-      g2.appendChild(px(r.on ? "check" : "chev", 2, r.on ? "#5BD68F" : "#5A5A66"));
+      g2.appendChild(r.on ? ic("check", 17, 2.2, "var(--ok)") : ic("right", 16, 2));
       b.appendChild(g2);
       b.addEventListener("click", function () { closeSheet(); onPick && onPick(r); });
       sheet.appendChild(b);
@@ -470,38 +484,54 @@
   }
   scrim.addEventListener("click", closeSheet);
 
-  var MENU = [
-    { t: "Model", d: "who does the work", go: "model" },
-    { t: "Sessions", d: "what you ran before", go: "sessions" },
-    { t: "How much it asks you", d: "permission level", go: "perms" }
-  ];
+  function openModels() {
+    var rows = [];
+    C.models.forEach(function (g) {
+      g.items.forEach(function (m) {
+        rows.push({ t: m.n, d: g.co + " · " + m.d, brand: g.brand, on: m.n === st.model, crew: g.crew });
+      });
+    });
+    openSheet("Model", rows, function (m) {
+      st.model = m.t; st.brand = m.brand;
+      if (m.crew && E.SH[m.crew]) E.setCrew(m.crew);
+      syncModel();
+      toast("Now working: " + m.t);
+    });
+  }
+  modelPill.addEventListener("click", openModels);
+  modelMini.addEventListener("click", openModels);
+
+  histBtn.addEventListener("click", function () {
+    openSheet("Sessions", C.sessions.map(function (s) {
+      return { t: s.project + " · " + C.states[s.state].t, d: s.sum, brand: E.brandOfCrew(s.crew) };
+    }), function () { toast("Picked it back up"); });
+  });
+
+  function theme() { return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light"; }
+  function setTheme(v) {
+    if (v === "dark") document.documentElement.setAttribute("data-theme", "dark");
+    else document.documentElement.removeAttribute("data-theme");
+    try { localStorage.setItem("pc-theme", v); } catch (e) {}
+  }
 
   burgerBtn.addEventListener("click", function () {
-    openSheet("MENU", MENU, function (r) {
+    openSheet("Menu", [
+      { t: "Model", d: st.model, go: "model" },
+      { t: "Sessions", d: "what you ran before", go: "sessions" },
+      { t: "How much it asks you", d: "permission level", go: "perms" },
+      { t: theme() === "dark" ? "Light theme" : "Dark theme", d: "appearance", go: "theme" }
+    ], function (r) {
+      if (r.go === "theme") { setTheme(theme() === "dark" ? "light" : "dark"); return; }
       setTimeout(function () {
-        if (r.go === "model") {
-          var rows = [];
-          C.models.forEach(function (g) {
-            g.items.forEach(function (m) {
-              rows.push({ t: m.n, d: g.co + " · " + m.d, brand: g.brand, on: m.n === st.model, crew: g.crew });
-            });
-          });
-          openSheet("MODEL", rows, function (m) {
-            st.model = m.t;
-            if (m.crew && E.SH[m.crew]) E.setCrew(m.crew);
-            drawMark();
-            toast("Now working: " + m.t);
-          });
-        } else if (r.go === "sessions") {
-          openSheet("SESSIONS", C.sessions.map(function (s) {
-            return { t: s.project + " · " + C.states[s.state].t, d: s.sum, brand: E.brandOfCrew(s.crew) };
-          }), function () { toast("Picked it back up"); });
-        } else {
-          openSheet("HOW MUCH IT ASKS YOU", C.perms.items.map(function (p) {
-            return { t: p.t, d: p.d, on: !!p.on };
-          }), function (p) { C.perms.items.forEach(function (x) { x.on = x.t === p.t; }); toast(p.t); });
-        }
-      }, 160);
+        if (r.go === "model") return openModels();
+        if (r.go === "sessions") return histBtn.click();
+        openSheet("How much it asks you", C.perms.items.map(function (p) {
+          return { t: p.t, d: p.d, on: !!p.on };
+        }), function (p) {
+          C.perms.items.forEach(function (x) { x.on = x.t === p.t; });
+          toast(p.t);
+        });
+      }, 180);
     });
   });
 
@@ -511,29 +541,17 @@
 
   /* ---------- старт ---------- */
   E.boot();
-  st.model = "Claude Opus 5";
+  try { if (localStorage.getItem("pc-theme") === "dark") setTheme("dark"); } catch (e) {}
 
-  function drawMark() {
-    mark.textContent = "";
-    mark.appendChild(lab("POCKETCODE", 2, "#F2F2F5"));
+  function syncModel() {
+    mpBrand.textContent = "";
+    mpBrand.appendChild(E.brand(st.brand, 16));
+    var short = st.model.replace(/^(Claude|Kimi|Gemini|Mistral|Llama|DeepSeek)\s/, "");
+    mpName.textContent = short;
+    mmName.textContent = short;
   }
-  drawMark();
+  syncModel();
 
-  burgerBtn.appendChild(px("burger", 2, "#8E8E99"));
-  menuBtn.appendChild(px("dots", 2, "#8E8E99"));
-
-  menuBtn.addEventListener("click", function () {
-    openSheet("THIS SESSION", [
-      { t: "Undo a step", d: "roll the code back" },
-      { t: "Stop it", d: "keeps everything it did" },
-      { t: "What's the pet up to", d: "ask it directly" }
-    ], function (r) {
-      if (/pet/i.test(r.t)) { pet && pet.say("Right now: " + pet.doing() + ".", 3200); return; }
-      if (/undo/i.test(r.t)) { toast("Rolled back one step"); petAct("wave"); return; }
-      setBusy(false); setStrip("STOPPED", "wait", "pc-dots"); toast("Stopped — nothing lost");
-    });
-  });
-  sendBtn.appendChild(px("send", 2, "#000000"));
   ta.placeholder = C.session.freshPlaceholder;
   fillChips(C.session.freshChips);
   showIdle();
@@ -546,21 +564,21 @@
     addCard: addCard, planCard: planCard, askCard: askCard, button: button,
     setStrip: setStrip, setBusy: setBusy, toast: toast, scroll: scroll,
     clearIdle: clearIdle, fillChips: fillChips, petAct: petAct,
-    lab: lab, px: px, el: el, ind: ind, feed: feed,
+    el: el, ind: ind, ic: ic, feed: feed, input: ta,
     startClock: function () { t0 = Date.now(); },
+    focus: function () { ta.focus(); },
     toolDone: function (node, ok, out) {
       if (!node) return;
       if (node._out) node._out.textContent = out || "";
       if (node._glyph && node._glyph.parentNode) {
-        node._glyph.parentNode.replaceChild(px(ok ? "check" : "cross", 2, ok ? "#5BD68F" : "#FF6B6B"), node._glyph);
+        node._glyph.parentNode.replaceChild(
+          ic(ok ? "check" : "cross", 15, 2.2, ok ? "var(--ok)" : "var(--bad)"), node._glyph);
       }
       scroll();
     },
     setSender: function (fn) { SEND = fn; },
-    input: ta,
-    focus: function () { ta.focus(); },
     state: st
   };
 
-  window.addEventListener("resize", function () { scroll(); });
+  window.addEventListener("resize", scroll);
 })();

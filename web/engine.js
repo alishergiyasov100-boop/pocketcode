@@ -717,12 +717,16 @@
   };
 
   Pet.prototype._bub = function () {
+    /* сначала отпускаем к левому краю, чтобы измерить естественную ширину,
+       иначе у правого края элемент зажимается и текст рвётся по словам */
+    this.bubble.style.left = "0px";
     var a = this._anchor(this.bubble.offsetWidth);
     this.bubble.style.left = a.left + "px";
     this.bubble.style.top = a.top + "px";
   };
 
   Pet.prototype._place = function () {
+    this._menu.style.left = "0px";
     var a = this._anchor(this._menu.offsetWidth);
     this._menu.style.left = a.left + "px";
     this._menu.style.top = a.top + "px";
