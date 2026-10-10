@@ -1,0 +1,276 @@
+/* ============================================================================
+   FX — animation kit for context menus, sheets and meters.
+   Transform + opacity only. No colours of its own: every surface/ink value
+   comes from the app theme tokens, so light/dark need no extra rules here.
+
+   Curves
+     --fx-out    cubic-bezier(.16,1,.3,1)     entrances, decelerate hard
+     --fx-in     cubic-bezier(.4,0,1,1)       exits, accelerate away
+     --fx-snap   cubic-bezier(.2,.9,.25,1)    switch pill travel
+     --fx-spring cubic-bezier(.34,1.28,.64,1) press release + bar fill overshoot
+     --fx-down   cubic-bezier(.3,0,.7,1)      press down
+   ========================================================================== */
+
+:root {
+  --fx-out:    cubic-bezier(.16, 1, .3, 1);
+  --fx-in:     cubic-bezier(.4, 0, 1, 1);
+  --fx-snap:   cubic-bezier(.2, .9, .25, 1);
+  --fx-spring: cubic-bezier(.34, 1.28, .64, 1);
+  --fx-down:   cubic-bezier(.3, 0, .7, 1);
+
+  --fx-enter:  260ms;  /* menu / small panel         */
+  --fx-sheet:  300ms;  /* tall sheet with side slide */
+  --fx-row:    200ms;  /* one staggered row          */
+  --fx-step:    22ms;  /* stagger interval           */
+  --fx-exit:   160ms;  /* every dismissal            */
+  --fx-scrim:  180ms;
+  --fx-switch: 240ms;
+  --fx-bar:    300ms;
+
+  /* written by FX.reveal(); safe defaults if used from markup only */
+  --fx-ox: 50%;
+  --fx-oy: 0%;
+  --fx-slide: 28px;
+}
+
+/* ---------------------------------------------------------------- 1. ORIGIN
+   Two animations on two *different* properties: `scale` (+opacity) and
+   `translate`. They compose instead of overwriting each other, which is what
+   lets SIDE SLIDE swap only the translate track below. */
+
+.fx-reveal {
+  transform-origin: var(--fx-ox) var(--fx-oy);
+  will-change: transform, opacity;
+  animation:
+    fx-origin-scale var(--fx-enter) var(--fx-out) both,
+    fx-origin-lift  var(--fx-enter) var(--fx-out) both;
+}
+
+@keyframes fx-origin-scale {
+  from { opacity: 0; scale: .86; }
+  60%  { opacity: 1; }
+  to   { opacity: 1; scale: 1; }
+}
+
+@keyframes fx-origin-lift {
+  from { translate: 0 8px; }
+  to   { translate: 0 0; }
+}
+
+/* ------------------------------------------------------------ 2. SIDE SLIDE
+   Same panel, same scale track, only the translate track is replaced — the
+   panel still unfolds from the tap point while entering from the near edge.
+   FX.reveal() picks the side from the tap x; .fx-side forces side mode. */
+
+.fx-reveal.fx-from-left,
+.fx-reveal.fx-from-right {
+  animation-duration: var(--fx-sheet);
+}
+
+.fx-reveal.fx-from-left {
+  animation-name: fx-origin-scale, fx-slide-from-left;
+}
+
+.fx-reveal.fx-from-right {
+  animation-name: fx-origin-scale, fx-slide-from-right;
+}
+
+@keyframes fx-slide-from-left {
+  from { translate: calc(var(--fx-slide) * -1) 4px; }
+  to   { translate: 0 0; }
+}
+
+@keyframes fx-slide-from-right {
+  from { translate: var(--fx-slide) 4px; }
+  to   { translate: 0 0; }
+}
+
+/* ---------------------------------------------------------------- 3. STAGGER
+   Caller sets --i per row (markup or FX.stagger). Rows land 22ms apart. */
+
+.fx-stagger-item {
+  animation: fx-row-in var(--fx-row) var(--fx-out) both;
+  animation-delay: calc(var(--i, 0) * var(--fx-step));
+}
+
+@keyframes fx-row-in {
+  from { opacity: 0; translate: 0 6px; }
+  to   { opacity: 1; translate: 0 0; }
+}
+
+/* ------------------------------------------------------------------ 4. PRESS
+   Down is fast and linear-ish, release overshoots a hair and settles. */
+
+.fx-press {
+  -webkit-tap-highlight-color: transparent;
+  transition: scale 200ms var(--fx-spring);
+}
+
+.fx-press:active {
+  scale: .965;
+  transition: scale 90ms var(--fx-down);
+}
+
+.fx-press-sm:active { scale: .985; }   /* wide rows: less travel reads better */
+
+/* ----------------------------------------------------------------- 5. SWITCH
+   Equal segments; the pill never re-lays out, it translates by whole steps.
+   --fx-n = segment count, --fx-sel = selected index. */
+
+.fx-switch {
+  --fx-n: 2;
+  --fx-sel: 0;
+  position: relative;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  padding: 4px;
+  background: var(--sunk);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.fx-switch-pill {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc((100% - 8px) / var(--fx-n));
+  background: var(--solid);
+  border-radius: 999px;
+  translate: calc(var(--fx-sel) * 100%) 0;
+  transition: translate var(--fx-switch) var(--fx-snap);
+  pointer-events: none;
+}
+
+.fx-switch-opt {
+  position: relative;
+  z-index: 1;
+  padding: 9px 14px;
+  border: 0;
+  background: none;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink3);
+  transition: color 160ms var(--fx-snap);
+  cursor: pointer;
+}
+
+.fx-switch-opt[aria-selected="true"] { color: var(--solid-ink); }
+
+/* ----------------------------------------------------------- 6. SHEET DISMISS
+   Mirror of the entrance, shorter, and eased IN so it leaves immediately.
+   fx-dismiss-scale is the animation FX.dismiss() waits on. */
+
+.fx-dismiss {
+  transform-origin: var(--fx-ox) var(--fx-oy);
+  pointer-events: none;
+  animation:
+    fx-dismiss-scale var(--fx-exit) var(--fx-in) both,
+    fx-dismiss-drop  var(--fx-exit) var(--fx-in) both;
+}
+
+.fx-dismiss.fx-to-left  { animation-name: fx-dismiss-scale, fx-slide-out-left; }
+.fx-dismiss.fx-to-right { animation-name: fx-dismiss-scale, fx-slide-out-right; }
+
+@keyframes fx-dismiss-scale {
+  from { opacity: 1; scale: 1; }
+  to   { opacity: 0; scale: .96; }
+}
+
+@keyframes fx-dismiss-drop {
+  from { translate: 0 0; }
+  to   { translate: 0 4px; }
+}
+
+@keyframes fx-slide-out-left {
+  from { translate: 0 0; }
+  to   { translate: calc(var(--fx-slide) * -.6) 0; }
+}
+
+@keyframes fx-slide-out-right {
+  from { translate: 0 0; }
+  to   { translate: calc(var(--fx-slide) * .6) 0; }
+}
+
+/* scrim that rides along with a sheet */
+.fx-scrim {
+  background: color-mix(in srgb, var(--ink) 38%, transparent);
+}
+.fx-scrim-in  { animation: fx-fade-in  var(--fx-scrim) var(--fx-out) both; }
+.fx-scrim-out { animation: fx-fade-out var(--fx-exit)  var(--fx-in)  both; }
+
+@keyframes fx-fade-in  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fx-fade-out { from { opacity: 1; } to { opacity: 0; } }
+
+/* ---------------------------------------------------------------- 7. COUNT UP
+   Pure JS value animation; this only keeps the digits from reflowing. */
+
+.fx-count {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* ---------------------------------------------------------------- 8. BAR FILL
+   Track owns the radius and clips; the fill only ever scales on X. */
+
+.fx-bar {
+  position: relative;
+  overflow: hidden;
+  height: 6px;
+  background: var(--sunk2);
+  border-radius: 999px;
+}
+
+.fx-bar-fill {
+  --fx-pct: 0;
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: var(--solid);
+  transform-origin: left center;
+  scale: var(--fx-pct) 1;
+  transition: scale var(--fx-bar) var(--fx-spring);
+}
+
+.fx-bar-fill.is-ok   { background: var(--ok); }
+.fx-bar-fill.is-warn { background: var(--warn); }
+.fx-bar-fill.is-bad  { background: var(--bad); }
+
+/* -------------------------------------------------------- REDUCED MOTION
+   Nothing is removed, so animationend still fires and every JS callback keeps
+   working. Instead the animations are swapped for ones whose first keyframe
+   already equals their last: there is no frame on which a panel is invisible
+   or mid-flight. Entrances settle open, exits clear out at once. */
+
+@keyframes fx-rm-settle {
+  from, to { opacity: 1; scale: 1; translate: 0 0; }
+}
+
+@keyframes fx-rm-clear {
+  from, to { opacity: 0; scale: 1; translate: 0 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fx-reveal,
+  .fx-stagger-item,
+  .fx-scrim-in {
+    animation: fx-rm-settle 1ms linear both !important;
+  }
+
+  .fx-dismiss,
+  .fx-scrim-out {
+    animation: fx-rm-clear 1ms linear both !important;
+  }
+
+  .fx-press,
+  .fx-switch-pill,
+  .fx-switch-opt,
+  .fx-bar-fill {
+    transition-duration: 1ms !important;
+  }
+
+  .fx-press:active,
+  .fx-press-sm:active { scale: 1; }
+}

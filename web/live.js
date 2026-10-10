@@ -43,6 +43,7 @@
       U.toast("Connected to " + (p.project || "your project"));
       return;
     }
+    if (p.t === "usage") { U.showAccount && U.showAccount(p.u); return; }
     if (p.t === "state") {
       U.setBusy(p.busy);
       if (p.busy) { U.startClock(); strip("WORKING", "", "pc-ring-px"); }

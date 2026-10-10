@@ -318,11 +318,11 @@
       if (e.type === "agent") { addSay(e.text, function () { setTimeout(run, 260); }); return; }
       if (e.type === "step") {
         addStep(e.text, e.tone !== "bad");
-        if (e.tone === "bad") petAct("panic"); else if (/green|done/i.test(e.text)) petAct("cheer");
+        if (e.tone === "bad") petEvent("tool_failed"); else petEvent("tool_done");
         setTimeout(run, REDUCED ? 0 : 760);
         return;
       }
-      if (e.type === "tool") { addTool(e.label, e.out); setTimeout(run, REDUCED ? 0 : 600); return; }
+      if (e.type === "tool") { addTool(e.label, e.out); petEvent("tool_started"); setTimeout(run, REDUCED ? 0 : 600); return; }
       setTimeout(run, 300);
     })();
   }
@@ -334,16 +334,18 @@
     setBusy(true);
     t0 = Date.now();
     setStrip("Thinking", "", "pc-ring-px");
-    petAct("read");
     addYou(text);
+    petEvent("message_sent");
     setTimeout(function () {
       addSay("Let me look at it first.", function () {
         setTimeout(function () {
+          petEvent("plan_waiting");
           planCard(function () {
             setStrip("Working", "", "pc-ring-px");
+            petEvent("agent_thinking");
             play(FIRST, function () {
               setBusy(false);
-              petAct("cheer");
+              petEvent("agent_finished");
               fillChips(C.session.chips);
               ta.placeholder = C.session.placeholder;
             });
@@ -359,12 +361,13 @@
     t0 = Date.now();
     setStrip("Working", "", "pc-ring-px");
     addYou(text);
-    petAct("read");
+    petEvent("message_sent");
     if (/ship it/i.test(text)) {
       setTimeout(function () {
         askCard("Straight to main, or open a pull request?", [
           { t: "Open a PR" }, { t: "Straight to main" }
         ], function (o) { addStep("You chose: " + o.t.toLowerCase(), true); runFollow(f); });
+        petEvent("question_waiting");
       }, 500);
       return;
     }
@@ -378,7 +381,7 @@
         setTimeout(function () {
           addStep(f.sstep, true);
           setTimeout(function () {
-            addSay(f.sreply, function () { setBusy(false); petAct("cheer"); });
+            addSay(f.sreply, function () { setBusy(false); petEvent("agent_finished"); });
           }, 700);
         }, 500);
       });
@@ -419,7 +422,7 @@
     grow();
     send(v);
   }
-  ta.addEventListener("input", grow);
+  ta.addEventListener("input", function () { grow(); if (pet && pet.typing) pet.typing(ta.value.length > 0); });
   ta.addEventListener("keydown", function (e) {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
   });
@@ -484,6 +487,42 @@
   }
   scrim.addEventListener("click", closeSheet);
 
+  function openPerms() {
+    openSheet("How much it asks you", C.perms.items.map(function (p) {
+      return { t: p.t, d: p.d, on: !!p.on };
+    }), function (p) {
+      C.perms.items.forEach(function (x) { x.on = x.t === p.t; });
+      toast(p.t);
+    });
+  }
+
+  /* расход и лимиты */
+  var usageData = null;
+  /* лист лимитов приходит самостоятельным оверлеем — кладём его в корень
+     приложения и слушаем его же событие закрытия */
+  function openLimits() {
+    if (!window.PCUSAGE) { toast("Usage is not available yet"); return; }
+    var data = usageData || (window.PC_SET && PC_SET.usage_sample) || {};
+    var old = app.querySelector(".pc-sheet-root");
+    if (old) old.remove();
+    var node = PCUSAGE.renderLimitsSheet(data, { el: el, ic: ic });
+    node.classList.add("pcu-in-app");
+    app.appendChild(node);
+    node.addEventListener("pcusage:close", function () { node.remove(); });
+  }
+
+  var stripEl = null;
+  function showAccount(data) {
+    usageData = data || usageData;
+    if (!window.PCUSAGE || !usageData) return;
+    var fresh = PCUSAGE.renderAccountStrip(usageData, { el: el, ic: ic });
+    fresh.classList.add("acct");
+    fresh.addEventListener("click", openLimits);
+    if (stripEl && stripEl.parentNode) stripEl.replaceWith(fresh);
+    else feed.insertBefore(fresh, feed.firstChild);
+    stripEl = fresh;
+  }
+
   function openModels() {
     var rows = [];
     C.models.forEach(function (g) {
@@ -514,7 +553,12 @@
     try { localStorage.setItem("pc-theme", v); } catch (e) {}
   }
 
-  burgerBtn.addEventListener("click", function () {
+  burgerBtn.addEventListener("click", function (e) {
+    if (window.PCPANEL) {
+      var r = burgerBtn.getBoundingClientRect();
+      PCPANEL.open(e.clientX || (r.left + r.width / 2), e.clientY || (r.top + r.height / 2));
+      return;
+    }
     openSheet("Menu", [
       { t: "Model", d: st.model, go: "model" },
       { t: "Sessions", d: "what you ran before", go: "sessions" },
@@ -538,6 +582,7 @@
   /* ---------- питомец ---------- */
   var pet;
   function petAct(a) { if (pet) pet.act(a); }
+  function petEvent(n, x) { if (pet && pet.event) pet.event(n, x); else if (pet) petAct(n === "tool_failed" ? "panic" : "work"); }
 
   /* ---------- старт ---------- */
   E.boot();
@@ -558,6 +603,10 @@
   setStrip(null);
 
   pet = new E.Pet(stage, 3);
+  setTimeout(function () { petEvent("app_opened"); }, 400);
+
+  /* в демо показываем образец, в живом режиме его заменит демон */
+  if (!window.PC_LIVE && window.PC_SET && PC_SET.usage_sample) showAccount(PC_SET.usage_sample);
 
   window.PCUI = {
     addYou: addYou, addSay: addSay, addStep: addStep, addTool: addTool,
@@ -577,6 +626,9 @@
       scroll();
     },
     setSender: function (fn) { SEND = fn; },
+    openModels: openModels, openPerms: openPerms, openLimits: openLimits,
+    showAccount: showAccount,
+    pet: function () { return pet; },
     state: st
   };
 

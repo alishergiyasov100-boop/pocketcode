@@ -26,6 +26,21 @@ function start(cfg) {
   const clients = new Set();
   let session = null;
 
+  /* всё, что мы честно знаем о расходе; чего не знаем — null, а не ноль */
+  const day = { cost: 0, tokens: 0, turns: 0, since: Date.now() };
+  function usageSnapshot() {
+    const s = session && !session.closed ? session.usage() : null;
+    return {
+      plan: cfg.plan || null,
+      model: cfg.model || "default",
+      gateway: cfg.baseUrl || null,
+      session: s ? { cost: s.cost, tokens: s.tokens, turns: s.turns, elapsed: s.elapsed } : null,
+      today: { cost: day.cost, tokens: day.tokens, turns: day.turns, since: day.since },
+      allowance: cfg.allowance || null,     /* { limitUsd, usedUsd, resetsAt } если задано */
+      project: path.basename(cfg.project)
+    };
+  }
+
   function blast(obj) {
     const s = JSON.stringify(obj);
     for (const c of clients) c.send(s);
@@ -44,7 +59,14 @@ function start(cfg) {
     }).start();
 
     session.on("ui", (e) => blast({ t: "ui", e }));
-    session.on("idle", () => blast({ t: "state", busy: false }));
+    session.on("idle", () => {
+      const u = session.usage();
+      day.cost = u.cost;                 /* шлюз отдаёт накопленную стоимость сессии */
+      day.tokens = u.tokens;
+      day.turns = u.turns;
+      blast({ t: "state", busy: false });
+      blast({ t: "usage", u: usageSnapshot() });
+    });
     session.on("session", (id) => { cfg.resume = id; });
     session.on("stderr", (d) => process.stderr.write("[claude] " + d));
     session.on("error", (e) => blast({ t: "error", message: String(e && e.message || e) }));
@@ -58,6 +80,12 @@ function start(cfg) {
 
   const server = http.createServer((req, res) => {
     const url = (req.url || "/").split("?")[0];
+
+    if (url === "/api/usage") {
+      res.writeHead(200, { "content-type": TYPES[".json"] });
+      res.end(JSON.stringify(usageSnapshot()));
+      return;
+    }
 
     if (url === "/api/status") {
       res.writeHead(200, { "content-type": TYPES[".json"] });
@@ -83,6 +111,7 @@ function start(cfg) {
 
   attach(server, "/ws", (sock) => {
     clients.add(sock);
+    sock.send(JSON.stringify({ t: "usage", u: usageSnapshot() }));
     sock.send(JSON.stringify({
       t: "hello",
       project: path.basename(cfg.project),

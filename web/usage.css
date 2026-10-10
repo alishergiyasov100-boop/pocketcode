@@ -1,0 +1,419 @@
+/* ==========================================================================
+   ACCOUNT USAGE AND LIMITS
+   Piece 1 — .pc-strip        pinned account strip (<=110px; renders at 79–82)
+   Piece 2 — .pc-sheet-root   limits bottom sheet
+   Colour comes only from the existing token set. No gradients.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   Shared: tabular figures. Every number in these two pieces gets this.
+   -------------------------------------------------------------------------- */
+.pc-num{
+  font-family:var(--mono);
+  font-variant-numeric:tabular-nums;
+  font-feature-settings:"tnum" 1,"lnum" 1;
+  letter-spacing:-.01em;
+}
+
+/* --------------------------------------------------------------------------
+   Shared: meter bar — hairline track, solid fill.
+
+   TONE THRESHOLDS (single source of truth, mirrored by tone() in the JS):
+     pct unknown / not finite .... [data-tone="unknown"]  track only, no fill
+     pct >  95 .................... [data-tone="bad"]      var(--bad)
+     pct >  80 .................... [data-tone="warn"]     var(--warn)
+     otherwise .................... [data-tone="ink"]      var(--ink)
+   Boundaries are EXCLUSIVE: exactly 80 is still "ink", exactly 95 is "warn".
+   -------------------------------------------------------------------------- */
+.pc-meter{
+  display:block;
+  position:relative;
+  height:3px;
+  border-radius:999px;
+  background:var(--line);
+  overflow:hidden;
+}
+.pc-meter > i{
+  display:block;
+  height:100%;
+  width:0;
+  border-radius:999px;
+  background:var(--ink);
+  transition:width .35s cubic-bezier(.2,.7,.2,1);
+}
+.pc-meter--lg{ height:4px; }
+.pc-meter[data-tone="warn"] > i{ background:var(--warn); }
+.pc-meter[data-tone="bad"]  > i{ background:var(--bad);  }
+.pc-meter[data-tone="unknown"] > i{ display:none; }
+
+/* ==========================================================================
+   PIECE 1 — ACCOUNT STRIP
+   ========================================================================== */
+
+/* Optional dock: lets the host pin the strip over the scrolling thread. */
+.pc-strip-dock{
+  position:sticky;
+  top:0;
+  z-index:20;
+  padding:8px 12px 10px;
+  background:var(--page);
+}
+
+.pc-strip{
+  display:block;
+  width:100%;
+  margin:0;
+  box-sizing:border-box;
+  padding:12px 14px 11px;
+  text-align:left;
+  font-family:var(--ui);
+  color:var(--ink);
+  background:var(--card);
+  border:1px solid var(--line);
+  border-radius:var(--r-card);
+  box-shadow:var(--shadow);
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+  transition:background .15s ease, transform .15s ease;
+}
+.pc-strip:active{ transform:scale(.995); background:var(--sunk); }
+.pc-strip:focus-visible{ outline:2px solid var(--ink); outline-offset:2px; }
+
+.pc-strip-head{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+}
+.pc-strip-plan{
+  flex:0 1 auto;
+  min-width:0;
+  max-width:62%;
+  font-size:13px;
+  font-weight:600;
+  letter-spacing:-.01em;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.pc-strip-model{
+  /* shrinks before the plan name does, never grows into empty space */
+  flex:0 1 auto;
+  min-width:3.5ch;
+  padding:4px 9px 5px;
+  font-family:var(--mono);
+  font-size:11.5px;
+  line-height:1;
+  color:var(--ink2);
+  background:var(--sunk);
+  border-radius:999px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.pc-strip-right{
+  margin-left:auto;
+  flex:none;
+  display:flex;
+  align-items:baseline;
+  gap:6px;
+  white-space:nowrap;
+}
+.pc-strip-lab{
+  font-size:11px;
+  font-weight:600;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  color:var(--ink3);
+}
+.pc-strip-pct{
+  font-size:15px;
+  font-weight:600;
+}
+.pc-strip-go{
+  flex:none;
+  display:flex;
+  align-self:center;
+  color:var(--ink3);
+  margin-right:-2px;
+}
+
+.pc-strip .pc-meter{ margin:10px 0 0; }
+
+.pc-strip-foot{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-top:9px;
+  font-size:12px;
+  color:var(--ink3);
+}
+.pc-strip-use{
+  display:flex;
+  align-items:baseline;
+  gap:6px;
+  min-width:0;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.pc-strip-use .pc-num{ font-size:12px; color:var(--ink2); }
+.pc-strip-dot{ color:var(--ink3); opacity:.6; }
+.pc-strip-reset{
+  margin-left:auto;
+  flex:none;
+  display:flex;
+  align-items:center;
+  gap:5px;
+  white-space:nowrap;
+}
+.pc-strip-reset .pc-num{ font-size:12px; color:var(--ink2); }
+
+/* ==========================================================================
+   PIECE 2 — LIMITS SHEET
+   ========================================================================== */
+
+.pc-sheet-root{
+  position:fixed;
+  inset:0;
+  z-index:80;
+  display:flex;
+  align-items:flex-end;
+  font-family:var(--ui);
+  color:var(--ink);
+}
+
+/* The only theme-safe dimmer available from the token set is a heavy veil of
+   the page colour: it darkens the dark theme and washes out the light one.
+   The sheet detaches from it with --line2 + --shadow, not with a tint. */
+.pc-sheet-scrim{
+  position:absolute;
+  inset:0;
+  background:var(--page);
+  opacity:.8;
+  -webkit-backdrop-filter:blur(3px);
+  backdrop-filter:blur(3px);
+  animation:pc-fade .2s ease both;
+}
+
+.pc-sheet{
+  position:relative;
+  width:100%;
+  max-height:min(88svh,88vh,100%);
+  display:flex;
+  flex-direction:column;
+  background:var(--card);
+  border-top:1px solid var(--line2);
+  border-radius:var(--r-card) var(--r-card) 0 0;
+  box-shadow:var(--shadow);
+  animation:pc-rise .28s cubic-bezier(.2,.8,.2,1) both;
+}
+@keyframes pc-fade{ from{opacity:0} }
+@keyframes pc-rise{ from{transform:translateY(14px); opacity:0} }
+@media (prefers-reduced-motion:reduce){
+  .pc-sheet,.pc-sheet-scrim{ animation:none; }
+  .pc-meter > i{ transition:none; }
+}
+
+.pc-sheet-hold{ flex:none; padding:7px 0 2px; cursor:grab; }
+.pc-sheet-grab{
+  width:34px; height:4px; margin:0 auto;
+  border-radius:999px;
+  background:var(--line2);
+}
+
+.pc-sheet-body{
+  flex:1 1 auto;
+  min-height:0;
+  overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior:contain;
+  padding:2px 16px 14px;
+}
+
+/* ---- headline figure ---- */
+.pc-hero{ padding:12px 0 15px; }
+.pc-hero-row{ display:flex; align-items:baseline; gap:8px; }
+.pc-hero-fig{
+  display:flex;
+  align-items:baseline;
+  font-size:clamp(38px,12.5vw,50px);
+  line-height:.95;
+  font-weight:600;
+  letter-spacing:-.035em;
+}
+.pc-hero-unit{
+  font-size:.46em;
+  font-weight:500;
+  letter-spacing:0;
+  color:var(--ink3);
+  margin-left:1px;
+}
+.pc-hero-of{
+  margin-left:auto;
+  flex:none;
+  max-width:46%;
+  text-align:right;
+  font-size:12px;
+  font-weight:600;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  color:var(--ink3);
+  line-height:1.35;
+}
+.pc-hero-sub{
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:6px;
+  margin-top:11px;
+  font-size:13px;
+  color:var(--ink3);
+}
+.pc-hero-sub .pc-num{ font-size:13px; color:var(--ink2); }
+.pc-hero-at{ color:var(--ink3); }
+/* status flag: only ever --warn / --bad, only shown when over threshold */
+.pc-flag{
+  flex:none;
+  font-size:11.5px;
+  font-weight:600;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+.pc-flag[data-tone="warn"]{ color:var(--warn); }
+.pc-flag[data-tone="bad"] { color:var(--bad);  }
+.pc-hero .pc-meter{ margin-top:14px; }
+
+/* ---- sections ---- */
+.pc-sec{ border-top:1px solid var(--line); padding:16px 0 2px; }
+.pc-lab{
+  margin:0 0 13px;
+  font-size:12px;
+  font-weight:600;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  color:var(--ink3);
+}
+
+/* ---- by window ---- */
+/* the meter hugs the row it belongs to and keeps its distance from the next */
+.pc-win + .pc-win{ margin-top:19px; }
+.pc-win-top{
+  display:flex;
+  align-items:baseline;
+  gap:10px;
+  margin-bottom:6px;
+  min-width:0;
+}
+.pc-win-name{
+  font-size:14px;
+  min-width:0;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.pc-win-nums{
+  margin-left:auto;
+  flex:none;
+  display:flex;
+  align-items:baseline;
+  gap:12px;
+}
+.pc-win-cost{ font-size:13px; color:var(--ink2); text-align:right; }
+.pc-win-pct{
+  font-size:13.5px;
+  font-weight:600;
+  color:var(--ink);
+  text-align:right;
+  min-width:4.5ch;
+}
+
+/* ---- by model ---- */
+.pc-mod{
+  display:flex;
+  align-items:baseline;
+  gap:10px;
+  padding:10px 0;
+  border-bottom:1px solid var(--line);
+  min-width:0;
+}
+.pc-mod:last-child{ border-bottom:0; padding-bottom:4px; }
+.pc-mod-name{
+  font-size:14px;
+  min-width:0;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.pc-mod-nums{
+  margin-left:auto;
+  flex:none;
+  display:flex;
+  align-items:baseline;
+  gap:12px;
+}
+.pc-mod-tok{ font-size:12.5px; color:var(--ink3); text-align:right; }
+.pc-mod-cost{ font-size:13px; font-weight:600; text-align:right; min-width:5.5ch; }
+.pc-empty{ font-size:13px; color:var(--ink3); padding:2px 0 6px; }
+
+/* ---- explanation ---- */
+.pc-note{
+  display:flex;
+  gap:10px;
+  padding:12px 13px;
+  margin:2px 0 4px;
+  background:var(--sunk);
+  border:1px solid var(--line);
+  border-radius:var(--r-el);
+}
+.pc-note-ic{ flex:none; padding-top:2px; color:var(--ink3); }
+.pc-note-txt{ min-width:0; }
+.pc-note-txt p{
+  margin:0;
+  font-size:13px;
+  line-height:1.5;
+  color:var(--ink2);
+}
+.pc-note-txt p + p{ margin-top:7px; }
+
+/* ---- actions ---- */
+.pc-sheet-foot{
+  flex:none;
+  display:grid;
+  gap:8px;
+  padding:12px 16px;
+  padding-bottom:calc(12px + env(safe-area-inset-bottom,0px));
+  border-top:1px solid var(--line);
+  background:var(--card);
+  border-radius:0 0 var(--r-card) var(--r-card);
+}
+.pc-btn{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:7px;
+  width:100%;
+  box-sizing:border-box;
+  min-height:46px;
+  padding:0 16px;
+  font-family:var(--ui);
+  font-size:14.5px;
+  font-weight:600;
+  border:1px solid transparent;
+  border-radius:999px;
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+  transition:transform .15s ease, opacity .15s ease, background .15s ease;
+}
+.pc-btn:active{ transform:scale(.99); }
+.pc-btn:focus-visible{ outline:2px solid var(--ink); outline-offset:2px; }
+.pc-btn--solid{ background:var(--solid); color:var(--solid-ink); }
+.pc-btn--solid:active{ opacity:.88; }
+.pc-btn--quiet{
+  background:transparent;
+  color:var(--ink2);
+  border-color:var(--line2);
+  min-height:42px;
+  font-weight:500;
+}
+.pc-btn--quiet:active{ background:var(--sunk); }

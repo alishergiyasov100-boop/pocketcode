@@ -90,6 +90,8 @@ class Session extends EventEmitter {
     this.closed = false;
     this.cost = 0;
     this.turns = 0;
+    this.tokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+    this.startedAt = Date.now();
   }
 
   start() {
@@ -235,6 +237,11 @@ class Session extends EventEmitter {
     if (ev.type === "result") {
       this.busy = false;
       if (typeof ev.total_cost_usd === "number") this.cost = ev.total_cost_usd;
+      var u = ev.usage || {};
+      this.tokens.input      += u.input_tokens || 0;
+      this.tokens.output     += u.output_tokens || 0;
+      this.tokens.cacheRead  += u.cache_read_input_tokens || 0;
+      this.tokens.cacheWrite += u.cache_creation_input_tokens || 0;
       this.emit("ui", {
         type: "turn_done",
         ok: ev.subtype === "success" || !ev.is_error,
@@ -250,6 +257,18 @@ class Session extends EventEmitter {
     if (ev.type === "stream_event") { this.emit("delta", ev); return; }
   }
 }
+
+Session.prototype.usage = function () {
+  var t = this.tokens;
+  return {
+    cost: this.cost,
+    turns: this.turns,
+    tokens: t.input + t.output + t.cacheRead + t.cacheWrite,
+    detail: t,
+    startedAt: this.startedAt,
+    elapsed: Date.now() - this.startedAt
+  };
+};
 
 module.exports = { Session, humanize, describeBash, shortOutput };
 
