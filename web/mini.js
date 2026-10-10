@@ -627,7 +627,8 @@
     },
     setSender: function (fn) { SEND = fn; },
     openModels: openModels, openPerms: openPerms, openLimits: openLimits,
-    showAccount: showAccount,
+    showAccount: showAccount, syncModel: function () { syncModel(); },
+    usage: function () { return usageData; },
     pet: function () { return pet; },
     state: st
   };

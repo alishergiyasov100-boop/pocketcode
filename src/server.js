@@ -41,6 +41,51 @@ function start(cfg) {
     };
   }
 
+  /* ---------- свои провайдеры ----------
+     Проверку делает демон, а не браузер: чужой шлюз почти наверняка
+     не отдаёт CORS-заголовки, и запрос со страницы просто не уйдёт. */
+
+  function readBody(req) {
+    return new Promise((resolve) => {
+      let b = "";
+      req.on("data", (d) => { b += d; if (b.length > 1e6) req.destroy(); });
+      req.on("end", () => { try { resolve(JSON.parse(b || "{}")); } catch (e) { resolve({}); } });
+    });
+  }
+
+  function probe(baseUrl, token) {
+    return new Promise((resolve) => {
+      let url;
+      try { url = new URL(String(baseUrl).replace(/\/+$/, "") + "/v1/models"); }
+      catch (e) { return resolve({ ok: false, error: "that does not look like a URL" }); }
+      const mod = url.protocol === "https:" ? require("https") : require("http");
+      const t0 = Date.now();
+      const req = mod.get(url, {
+        headers: {
+          authorization: "Bearer " + (token || ""),
+          "x-api-key": token || "",
+          "user-agent": "pocketcode"
+        }
+      }, (r) => {
+        let b = "";
+        r.on("data", (d) => { b += d; if (b.length > 2e6) r.destroy(); });
+        r.on("end", () => {
+          const ms = Date.now() - t0;
+          if (r.statusCode === 401 || r.statusCode === 403) {
+            return resolve({ ok: false, ms, error: "the key was refused (" + r.statusCode + ")" });
+          }
+          let j = null;
+          try { j = JSON.parse(b); } catch (e) {}
+          const list = j && Array.isArray(j.data) ? j.data.map((m) => m.id).filter(Boolean) : null;
+          if (!list) return resolve({ ok: false, ms, error: "answered " + r.statusCode + " but not with a model list" });
+          resolve({ ok: true, ms, models: list });
+        });
+      });
+      req.on("error", (e) => resolve({ ok: false, error: e.code === "ENOTFOUND" ? "no such host" : String(e.message) }));
+      req.setTimeout(12000, () => { req.destroy(); resolve({ ok: false, error: "no answer in 12s" }); });
+    });
+  }
+
   function blast(obj) {
     const s = JSON.stringify(obj);
     for (const c of clients) c.send(s);
@@ -80,6 +125,35 @@ function start(cfg) {
 
   const server = http.createServer((req, res) => {
     const url = (req.url || "/").split("?")[0];
+
+    if (url === "/api/providers" && req.method === "GET") {
+      res.writeHead(200, { "content-type": TYPES[".json"] });
+      res.end(JSON.stringify({ providers: cfg.providers || [], active: cfg.activeProvider || null }));
+      return;
+    }
+
+    if (url === "/api/providers" && req.method === "POST") {
+      readBody(req).then((body) => {
+        cfg.providers = Array.isArray(body.providers) ? body.providers : (cfg.providers || []);
+        if (body.active !== undefined) cfg.activeProvider = body.active;
+        /* выбранный провайдер становится боевым движком */
+        const a = (cfg.providers || []).filter((p) => p.id === cfg.activeProvider)[0];
+        if (a) { cfg.baseUrl = a.baseUrl || ""; cfg.token = a.token || ""; if (a.model) cfg.model = a.model; }
+        config.save(cfg);
+        if (session && !session.closed) { session.stop(); session = null; }   /* подхватится на следующем ходу */
+        res.writeHead(200, { "content-type": TYPES[".json"] });
+        res.end(JSON.stringify({ ok: true, providers: cfg.providers, active: cfg.activeProvider }));
+      });
+      return;
+    }
+
+    if (url === "/api/providers/test" && req.method === "POST") {
+      readBody(req).then((body) => probe(body.baseUrl, body.token)).then((r) => {
+        res.writeHead(200, { "content-type": TYPES[".json"] });
+        res.end(JSON.stringify(r));
+      });
+      return;
+    }
 
     if (url === "/api/usage") {
       res.writeHead(200, { "content-type": TYPES[".json"] });

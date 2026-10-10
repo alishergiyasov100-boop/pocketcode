@@ -16,7 +16,9 @@ const DEFAULTS = {
   permissionMode: "acceptEdits",
   allowedTools: ["Read", "Edit", "Write", "Glob", "Grep", "Bash"],
   bare: true,
-  wakeLock: true
+  wakeLock: true,
+  providers: [],
+  activeProvider: null
 };
 
 function load() {
