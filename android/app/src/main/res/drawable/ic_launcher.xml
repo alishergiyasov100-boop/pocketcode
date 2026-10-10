@@ -1,0 +1,15 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#000000" android:pathData="M0,0h108v108h-108z" />
+    <!-- книга -->
+    <path android:fillColor="#F3EAD9" android:pathData="M28,34h22v10h-22z M58,34h22v10h-22z" />
+    <path android:fillColor="#B8824A" android:pathData="M28,44h52v4h-52z" />
+    <!-- тело -->
+    <path android:fillColor="#FF6B3D" android:pathData="M30,48h48v26h-48z" />
+    <path android:fillColor="#D94920" android:pathData="M30,66h48v8h-48z" />
+    <!-- глаза -->
+    <path android:fillColor="#14100E" android:pathData="M38,56h10v5h-10z M60,56h10v5h-10z" />
+    <!-- лапы -->
+    <path android:fillColor="#D94920" android:pathData="M32,74h8v6h-8z M68,74h8v6h-8z" />
+</vector>
