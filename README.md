@@ -99,6 +99,21 @@ runs `--version` on each, and uses the first that actually answers,
 remembering it in the config. `pocketcode status` names the binary when
 it had to skip a broken one.
 
+## Budget
+
+Your gateway does not stop you, and its replies report zero tokens, so the
+usage strip had nothing true to say and hid itself — which looked broken.
+
+PocketCode keeps its own books now. After every turn it reads the key's
+counter on the gateway (`/v1/me`), takes the difference since last time and
+writes it to `~/.pocketcode/ledger.jsonl` with a timestamp. Session, today
+and this week are summed from that file, so the numbers are the gateway's
+own billing, not a guess. Turns are counted directly and are exact.
+
+Set a cap in Settings -> Budget: turns, tokens, dollars, per day or week.
+The bar then means something, and at the line sending pauses until the
+window rolls over instead of quietly spending more.
+
 ## How it works
 
 ```

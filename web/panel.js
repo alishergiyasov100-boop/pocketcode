@@ -155,6 +155,93 @@
     }, pop));
   }
 
+  /* ---------- свой лимит ---------- */
+  var budget = { window: "week", turns: 0, tokens: 0, costUsd: 0, loaded: false, used: null };
+
+  function budgetLabel() {
+    if (!budget.loaded) return null;
+    var b = [];
+    if (budget.turns) b.push(budget.turns + " turns");
+    if (budget.tokens) b.push(Math.round(budget.tokens / 1000) + "K tokens");
+    if (budget.costUsd) b.push("$" + budget.costUsd);
+    return b.length ? b.join(" · ") + "/" + budget.window : "off";
+  }
+
+  function loadBudget(cb) {
+    if (!window.PC_LIVE) { budget.loaded = true; return cb && cb(); }
+    fetch("/api/limits").then(function (r) { return r.json(); }).then(function (j) {
+      var l = j.limits || {};
+      budget.window = l.window || "week";
+      budget.turns = l.turns || 0;
+      budget.tokens = l.tokens || 0;
+      budget.costUsd = l.costUsd || 0;
+      budget.used = j.used || null;
+      budget.pct = j.pct;
+      budget.resetsInSec = j.resetsInSec;
+      budget.loaded = true;
+      cb && cb();
+    })["catch"](function () { budget.loaded = true; cb && cb(); });
+  }
+
+  function budgetPage() {
+    push(page("Budget", function (b) {
+      b.appendChild(el("div", "pnl__note",
+        "The gateway does not stop you, so this is your own line. Turns are counted " +
+        "exactly; tokens and cost come from what the gateway bills your key. " +
+        "At the line, sending pauses until the window rolls over."));
+
+      if (budget.used) {
+        var c0 = group(b, "Used this " + budget.window);
+        row(c0, { title: "Turns", value: String(budget.used.turns || 0), flat: true });
+        row(c0, { title: "Tokens", value: String(budget.used.tokens || 0), flat: true });
+        row(c0, { title: "Cost", value: "$" + (budget.used.cost || 0).toFixed(4), flat: true });
+        if (budget.resetsInSec != null) {
+          var h = Math.floor(budget.resetsInSec / 3600), m = Math.round((budget.resetsInSec % 3600) / 60);
+          row(c0, { title: "Rolls over in", value: (h ? h + "h " : "") + m + "m", flat: true });
+        }
+      }
+
+      var cw = group(b, "Window");
+      [["day", "Every day"], ["week", "Every week"]].forEach(function (w) {
+        row(cw, {
+          title: w[1],
+          check: budget.window === w[0],
+          onTap: function () { budget.window = w[0]; pop(); budgetPage(); }
+        });
+      });
+
+      var turns = field(b, "Turns", { type: "number", value: budget.turns || "", placeholder: "0 = no cap", hint: "counted exactly" });
+      var toks = field(b, "Tokens", { type: "number", value: budget.tokens || "", placeholder: "0 = no cap", hint: "as the gateway bills them" });
+      var cost = field(b, "Dollars", { type: "number", value: budget.costUsd || "", placeholder: "0 = no cap" });
+
+      var acts = el("div", "pnl__acts");
+      var save = el("button", "pnl__btn pnl__btn--go", "Save"); save.type = "button";
+      save.addEventListener("click", function () {
+        budget.turns = +turns.value || 0;
+        budget.tokens = +toks.value || 0;
+        budget.costUsd = +cost.value || 0;
+        if (!window.PC_LIVE) { U.toast("Start the engine to keep a budget", "bad"); pop(); return; }
+        save.disabled = true; save.textContent = "Saving…";
+        fetch("/api/limits", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            window: budget.window, turns: budget.turns,
+            tokens: budget.tokens, costUsd: budget.costUsd
+          })
+        }).then(function (r) { return r.json(); }).then(function () {
+          U.toast(budgetLabel() === "off" ? "Budget is off" : "Budget: " + budgetLabel());
+          pop(); refresh();
+        })["catch"](function () {
+          save.disabled = false; save.textContent = "Save";
+          U.toast("The engine did not answer", "bad");
+        });
+      });
+      acts.appendChild(save);
+      b.appendChild(acts);
+    }, pop));
+  }
+
   function notesPage() {
     push(page("Custom instructions", function (b) {
       b.appendChild(el("div", "pnl__note",
@@ -518,6 +605,12 @@
       row(c4, { title: "Past sessions", onTap: function () { close(); setTimeout(function () { U.openSessions && U.openSessions(); }, 240); } });
       row(c4, { title: "Usage and limits", onTap: function () { close(); setTimeout(function () { U.openLimits && U.openLimits(); }, 240); } });
       row(c4, {
+        title: "Budget",
+        desc: "Your own cap, not the gateway's",
+        value: budgetLabel(),
+        onTap: budgetPage
+      });
+      row(c4, {
         title: "Project folder",
         desc: "Where the agent actually works",
         value: (U.state && U.state.project) || (U.usage && U.usage() && U.usage().project) || null,
@@ -532,7 +625,7 @@
 
   function open(x, y) {
     var draw = function () { reset(); push(root()); };
-    loadSearch(function () { loadPrefs(function () { if (PR) PR.load(draw); else draw(); }); });
+    loadSearch(function () { loadPrefs(function () { loadBudget(function () { if (PR) PR.load(draw); else draw(); }); }); });
     scrim.setAttribute("data-on", "true");
     panel.setAttribute("data-on", "true");
     if (window.FX) {

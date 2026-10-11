@@ -582,14 +582,8 @@
     usageData = data || usageData;
     if (!window.PCUSAGE || !usageData) return;
     /* пока ничего не потрачено, показывать строку из прочерков незачем */
-    if (window.PC_LIVE) {
-      var u = usageData;
-      var any = (u.session && u.session.tokens) || (u.today && u.today.tokens) || u.allowance || u.plan;
-      if (!any) {
-        if (stripEl && stripEl.parentNode) { stripEl.remove(); stripEl = null; }
-        return;
-      }
-    }
+    /* раньше при нулях строка пряталась — и верх экрана выглядел сломанным.
+       Показываем всегда: модель, окно и то, что уже израсходовано, известны. */
     var fresh = PCUSAGE.renderAccountStrip(usageData, { el: el, ic: ic });
     fresh.classList.add("acct");
     fresh.addEventListener("click", openLimits);

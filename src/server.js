@@ -11,6 +11,7 @@ const { Session } = require("./bridge");
 const { attach } = require("./ws");
 const config = require("./config");
 const claudeBin = require("./claude");
+const ledger = require("./ledger");
 
 const WEB = path.join(__dirname, "..", "web");
 const TYPES = {
@@ -29,6 +30,88 @@ function start(cfg) {
 
   /* всё, что мы честно знаем о расходе; чего не знаем — null, а не ноль */
   const day = { cost: 0, tokens: 0, turns: 0, since: Date.now() };
+  /* Шлюз в ответах шлёт нули, но про сам ключ знает всё: /v1/me.
+     Спрашиваем редко и кэшируем — это строка в шапке, а не телеметрия. */
+  let acct = { at: 0, data: null };
+  function refreshAccount() {
+    if (!cfg.baseUrl) return Promise.resolve(null);
+    if (Date.now() - acct.at < 60000) return Promise.resolve(acct.data);
+    const base = String(cfg.baseUrl).replace(/\/+$/, "");
+    const tryOne = (p) => new Promise((resolve) => {
+      let u;
+      try { u = new URL(base + p); } catch (e) { return resolve(null); }
+      const mod = u.protocol === "https:" ? require("https") : require("http");
+      const req = mod.request({
+        hostname: u.hostname, port: u.port, path: u.pathname, method: "GET",
+        headers: {
+          authorization: "Bearer " + (cfg.token || ""),
+          "user-agent": "pocketcode"        /* без UA шлюз отвечает 403 */
+        }
+      }, (r) => {
+        let b = "";
+        r.on("data", (d) => (b += d));
+        r.on("end", () => { try { const j = JSON.parse(b); resolve(j && j.ok !== false ? j : null); } catch (e) { resolve(null); } });
+      });
+      req.on("error", () => resolve(null));
+      req.setTimeout(6000, () => { req.destroy(); resolve(null); });
+      req.end();
+    });
+    return tryOne("/v1/me")
+      .then((j) => j || tryOne("/v1/key"))
+      .then((j) => { acct = { at: Date.now(), data: j || null }; return acct.data; });
+  }
+
+  function accountBits() {
+    const a = acct.data;
+    if (!a) return {};
+    const label = [a.typeLabel || a.type, a.plan && a.plan !== a.type ? a.plan : null]
+      .filter(Boolean).join(" · ");
+    const n = (v) => (typeof v === "number" && isFinite(v) ? v : null);
+    return {
+      plan: label || "Account",
+      weeklyPct: n(a.usedPct),
+      totals: {
+        tokens: n(a.used),
+        cost: n(a.costMicroUsd) != null ? a.costMicroUsd / 1e6 : null,
+        requests: n(a.requests)
+      },
+      limit: n(a.limit),
+      remaining: n(a.remaining),
+      unlimited: !!a.unlimited,
+      keyMasked: a.keyMasked || null,
+      allowanceLabel: a.unlimited ? "no cap on this key" : null
+    };
+  }
+
+  let sessionSince = Date.now();
+  function capLabel(L) {
+    const bits = [];
+    if (L.cap.turns) bits.push(L.cap.turns + " turns");
+    if (L.cap.tokens) bits.push(Math.round(L.cap.tokens / 1000) + "K tokens");
+    if (L.cap.cost) bits.push("$" + L.cap.cost);
+    return bits.length ? bits.join(" · ") + " a " + L.window : "no budget set";
+  }
+  function ledgerBits() {
+    const L = ledger.snapshot(cfg, sessionSince);
+    const pack = (w) => ({ cost: w.cost, tokens: w.tokens, turns: w.turns });
+    return {
+      session: pack(L.session),
+      today: pack(L.today),
+      week: Object.assign(pack(L.week), { pct: L.pct }),
+      weeklyPct: L.pct,
+      resetsAt: L.resetsAt,
+      resetsInSec: L.resetsInSec,
+      limitWindow: L.window,
+      cap: L.cap,
+      over: L.over,
+      models: L.models.map((m) => ({ name: m.name, tokens: m.tokens, cost: m.cost, turns: m.turns })),
+      allowanceLabel: capLabel(L),
+      limitNote: (L.cap.tokens || L.cap.cost || L.cap.turns)
+        ? "Your own budget. Turns are counted exactly; tokens and cost come from what the gateway bills this key."
+        : "No budget set yet — set one in Settings so this bar means something."
+    };
+  }
+
   function usageSnapshot() {
     const s = session && !session.closed ? session.usage() : null;
     return {
@@ -38,7 +121,11 @@ function start(cfg) {
       session: s ? { cost: s.cost, tokens: s.tokens, turns: s.turns, elapsed: s.elapsed } : null,
       today: { cost: day.cost, tokens: day.tokens, turns: day.turns, since: day.since },
       allowance: cfg.allowance || null,     /* { limitUsd, usedUsd, resetsAt } если задано */
-      project: path.basename(cfg.project)
+      project: path.basename(cfg.project),
+      activeModel: cfg.model || null,
+      gatewayName: cfg.baseUrl ? String(cfg.baseUrl).replace(/^https?:\/\//, "").split("/")[0] : null,
+      ...accountBits(),
+      ...ledgerBits()       /* наш лимит важнее того, что говорит про себя ключ */
     };
   }
 
@@ -266,6 +353,27 @@ function start(cfg) {
 
     session.on("ui", (e) => blast({ t: "ui", e }));
     session.on("idle", () => {
+      /* счётчик ключа — единственный правдивый источник: берём дельту.
+         Шлюз дописывает свой учёт чуть позже ответа, поэтому не спешим. */
+      setTimeout(() => {
+      acct.at = 0;
+      refreshAccount().then((a) => {
+        if (!a) return;
+        const used = typeof a.used === "number" ? a.used : null;
+        const cost = typeof a.costMicroUsd === "number" ? a.costMicroUsd / 1e6 : null;
+        const prevU = typeof cfg.meterTokens === "number" ? cfg.meterTokens : null;
+        const prevC = typeof cfg.meterCost === "number" ? cfg.meterCost : null;
+        if (used != null && prevU != null && used >= prevU) {
+          ledger.record(used - prevU, cost != null && prevC != null && cost >= prevC ? cost - prevC : 0, cfg.model || null);
+        }
+        Object.assign(cfg, config.patch({
+          meterTokens: used != null ? used : cfg.meterTokens,
+          meterCost: cost != null ? cost : cfg.meterCost
+        }));
+        blast({ t: "usage", u: usageSnapshot() });
+      });
+      }, 2500);
+
       const u = session.usage();
       day.cost = u.cost;                 /* шлюз отдаёт накопленную стоимость сессии */
       day.tokens = u.tokens;
@@ -321,6 +429,34 @@ function start(cfg) {
     if (url === "/api/sessions") {
       res.writeHead(200, { "content-type": TYPES[".json"] });
       res.end(JSON.stringify({ sessions: listSessions(), project: path.basename(cfg.project) }));
+      return;
+    }
+
+    if (url === "/api/limits" && req.method === "GET") {
+      res.writeHead(200, { "content-type": TYPES[".json"] });
+      res.end(JSON.stringify(Object.assign(
+        { limits: cfg.limits || {} },
+        ledger.snapshot(cfg, sessionSince)
+      )));
+      return;
+    }
+
+    if (url === "/api/limits" && req.method === "POST") {
+      readBody(req).then((body) => {
+        const lim = {
+          window: body.window === "day" ? "day" : "week",
+          tokens: Number(body.tokens) > 0 ? Math.round(Number(body.tokens)) : 0,
+          costUsd: Number(body.costUsd) > 0 ? Number(body.costUsd) : 0,
+          turns: Number(body.turns) > 0 ? Math.round(Number(body.turns)) : 0
+        };
+        Object.assign(cfg, config.patch({ limits: lim }));
+        blast({ t: "usage", u: usageSnapshot() });
+        res.writeHead(200, { "content-type": TYPES[".json"] });
+        res.end(JSON.stringify({ ok: true, limits: lim }));
+      }).catch(() => {
+        res.writeHead(400, { "content-type": TYPES[".json"] });
+        res.end(JSON.stringify({ ok: false }));
+      });
       return;
     }
 
@@ -446,8 +582,11 @@ function start(cfg) {
     });
   });
 
+  refreshAccount();                       /* чтобы шапка знала про ключ сразу */
+
   attach(server, "/ws", (sock) => {
     clients.add(sock);
+    refreshAccount().then((a) => { if (a) sock.send(JSON.stringify({ t: "usage", u: usageSnapshot() })); });
     sock.send(JSON.stringify({ t: "usage", u: usageSnapshot() }));
     sock.send(JSON.stringify({
       t: "hello",
@@ -462,6 +601,13 @@ function start(cfg) {
       try { m = JSON.parse(raw); } catch (e) { return; }
 
       if (m.t === "send" && m.text) {
+        const L = ledger.snapshot(cfg, sessionSince);
+        if (L.over) {
+          const when = new Date(L.resetsAt).toLocaleString();
+          blast({ t: "error", message: "You are at your own " + L.window + "ly budget. Sending resumes " + when + ", or raise it in Settings." });
+          blast({ t: "state", busy: false });
+          return;
+        }
         const s = ensure();
         if (!s) return;                   /* ensure уже объяснил, что не так */
         blast({ t: "state", busy: true });

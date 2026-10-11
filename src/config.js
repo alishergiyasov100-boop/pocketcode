@@ -24,7 +24,10 @@ const DEFAULTS = {
   effort: "",
   replyLanguage: "",
   replyLanguageName: "",
-  instructions: ""
+  instructions: "",
+  limits: { window: "week", tokens: 0, costUsd: 0, turns: 0 },
+  meterTokens: null,
+  meterCost: null
 };
 
 function load() {
