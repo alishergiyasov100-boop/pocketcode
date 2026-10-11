@@ -208,9 +208,17 @@ class Session extends EventEmitter {
       const msg = ev.message || ev;
       for (const part of msg.content || []) {
         if (part.type === "text" && part.text && part.text.trim()) {
+          this.lastText = part.text;
           this.emit("ui", { type: "agent", text: part.text });
         } else if (part.type === "thinking" && part.thinking) {
           this.emit("ui", { type: "think", text: part.thinking });
+        } else if (part.type === "tool_use" && part.name === "TodoWrite") {
+          const items = ((part.input && part.input.todos) || []).map((t) => ({
+            text: t.content || t.activeForm || "",
+            state: t.status || "pending"
+          }));
+          if (items.length) this.emit("ui", { type: "todos", items });
+          this.pending.set(part.id, { type: "todos", silent: true });
         } else if (part.type === "tool_use") {
           /* пустое имя инструмента = шлюз покрошил потоковый вызов на куски.
              Дальше модель будет долбиться в стену, так что рвём ход сами. */
@@ -228,6 +236,10 @@ class Session extends EventEmitter {
             state: "running"
           };
           this.pending.set(part.id, item);
+          const f = part.input && (part.input.file_path || part.input.notebook_path);
+          if (f && /^(Write|Edit|NotebookEdit)$/.test(part.name)) {
+            (this.touched = this.touched || []).push(String(f));
+          }
           this.emit("ui", item);
         }
       }
@@ -250,12 +262,16 @@ class Session extends EventEmitter {
         }
         const ok = okFromResult(text, part.is_error);
         this.pending.delete(part.tool_use_id);
+        if (item && item.silent) continue;          /* чеклист уже показан */
+        const full = String(text == null ? "" : text).replace(/\[[0-9;]*m/g, "");
         this.emit("ui", {
           type: "tool_done",
           id: part.tool_use_id,
           label: item ? item.label : "Did something",
           ok,
-          out: shortOutput(text)
+          out: shortOutput(text),
+          full: full.length > 420 ? full.slice(0, 20000) : null,
+          lines: full ? full.split("\n").length : 0
         });
       }
       return;

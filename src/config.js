@@ -28,7 +28,8 @@ const DEFAULTS = {
   limits: { window: "week", tokens: 0, costUsd: 0, turns: 0 },
   meterTokens: null,
   meterCost: null,
-  bashTimeoutMs: 600000      /* 2 минуты по умолчанию у Клода — на телефоне мало */
+  bashTimeoutMs: 600000,     /* 2 минуты по умолчанию у Клода — на телефоне мало */
+  notify: true               /* позвать, когда ход закончен */
 };
 
 function load() {

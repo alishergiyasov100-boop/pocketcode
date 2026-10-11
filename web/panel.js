@@ -354,6 +354,7 @@
     fetch("/api/prefs").then(function (r) { return r.json(); }).then(function (j) {
       if (j.effort) state.effort = j.effort;
       if (j.bashTimeoutMs) state.bashTimeoutMs = j.bashTimeoutMs;
+      if (j.notify !== undefined) state.notify = j.notify;
       if (j.language) state.lang = j.language;
       state.instructions = j.instructions || "";
       cb && cb();
@@ -612,6 +613,18 @@
         title: "Ask before acting",
         value: (PC_CONTENT.perms.items.filter(function (p) { return p.on; })[0] || {}).t,
         onTap: function () { close(); setTimeout(function () { U.openPerms && U.openPerms(); }, 240); }
+      });
+      row(c2, {
+        title: "Tell me when it's done",
+        desc: "A notification if you left the app",
+        toggle: true,
+        value: state.notify !== false,
+        onToggle: function (v) {
+          state.notify = v;
+          savePrefs({ notify: v }, function (ok) {
+            if (!ok) U.toast("The engine did not answer", "bad");
+          });
+        }
       });
       row(c2, {
         title: "Command timeout",

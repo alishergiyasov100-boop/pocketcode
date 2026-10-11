@@ -216,6 +216,35 @@
     return n;
   }
 
+  /* план агента, который обновляется по ходу дела */
+  var todoCard = null;
+  function showTodos(items) {
+    if (!items || !items.length) return;
+    var fresh = el("div", "todos");
+    var done = items.filter(function (i) { return i.state === "completed"; }).length;
+    var head = el("div", "todos__h");
+    head.appendChild(el("span", "todos__t", "Its plan"));
+    head.appendChild(el("span", "todos__n", done + " of " + items.length));
+    fresh.appendChild(head);
+
+    items.forEach(function (i) {
+      var r = el("div", "todo");
+      r.setAttribute("data-state", i.state || "pending");
+      var g = el("span", "todo__g");
+      if (i.state === "completed") g.appendChild(ic("check", 13, 2.6, "var(--ok)"));
+      else if (i.state === "in_progress") g.appendChild(ind("pc-ring-px"));
+      else g.appendChild(ic("dot", 13, 3, "var(--ink3)"));
+      r.appendChild(g);
+      r.appendChild(el("span", "todo__t", i.text));
+      fresh.appendChild(r);
+    });
+
+    if (todoCard && todoCard.parentNode) todoCard.replaceWith(fresh);
+    else feed.appendChild(fresh);
+    todoCard = fresh;
+    scroll();
+  }
+
   function addYou(text) { var n = el("div", "you", text); feed.appendChild(n); scroll(); return n; }
 
   function addSay(html, done) {
@@ -315,8 +344,18 @@
     });
   }
 
+  function stopAgent() {
+    if (window.__pcws) window.__pcws.send(JSON.stringify({ t: "interrupt" }));
+    setBusy(false);
+  }
+
   function setBusy(on) {
     st.busy = on;
+    /* пока он работает, та же кнопка останавливает — искать нечего */
+    sendBtn.textContent = "";
+    sendBtn.appendChild(ic(on ? "cross" : "send", on ? 16 : 17, on ? 2.4 : 2));
+    sendBtn.setAttribute("aria-label", on ? "Stop" : "Send");
+    sendBtn.setAttribute("data-stop", String(!!on));
     if (!on) { setStrip("Waiting on you", "wait", "pc-dots"); pump(); }
   }
 
@@ -436,7 +475,10 @@
   ta.addEventListener("keydown", function (e) {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
   });
-  sendBtn.addEventListener("click", submit);
+  sendBtn.addEventListener("click", function () {
+    if (st.busy && window.PC_LIVE) { stopAgent(); return; }
+    submit();
+  });
   ta.addEventListener("focus", function () { setTimeout(scroll, 300); });
   if (window.visualViewport) {
     window.visualViewport.addEventListener("resize", function () { setTimeout(scroll, 60); });
@@ -446,12 +488,18 @@
       { t: "New session", d: "Start from a blank page", act: "new" },
       { t: "Past sessions", d: "Pick up where you left off", act: "sessions" },
       { t: "Project folder", d: "Switch what it works on", act: "project" },
-      { t: "Run a command", d: "Puts $ in the box, the shell answers", act: "shell" }
+      { t: "Run a command", d: "Puts $ in the box, the shell answers", act: "shell" },
+      { t: "Undo last turn", d: "Put the files back as they were", act: "undo" }
     ];
     openSheet("Do", rows, function (r) {
       if (r.act === "new") { pickSession({ sid: "__new" }); return; }
       if (r.act === "sessions") { openSessions(); return; }
       if (r.act === "project") { openProjects(); return; }
+      if (r.act === "undo") {
+        if (!window.__pcws) { toast("Start the engine first", "bad"); return; }
+        window.__pcws.send(JSON.stringify({ t: "undo" }));
+        return;
+      }
       if (r.act === "shell") {
         ta.value = "$ ";
         ta.focus();
@@ -810,14 +858,30 @@
     addYou: addYou, addSay: addSay, addStep: addStep, addTool: addTool, addNote: addNote,
     addCard: addCard, planCard: planCard, askCard: askCard, button: button,
     setStrip: setStrip, setBusy: setBusy, toast: toast, scroll: scroll,
+    showTodos: showTodos, stopAgent: stopAgent,
     clearIdle: clearIdle, fillChips: fillChips, petAct: petAct, petEvent: petEvent,
     petTyping: function (on) { if (pet && pet.typing) pet.typing(on); },
     el: el, ind: ind, ic: ic, feed: feed, input: ta,
     startClock: function () { t0 = Date.now(); },
     focus: function () { ta.focus(); },
-    toolDone: function (node, ok, out) {
+    toolDone: function (node, ok, out, full, lines) {
       if (!node) return;
       if (node._out) node._out.textContent = out || "";
+      if (full) {
+        node.classList.add("tool--more");
+        var more = el("button", "tool__more"); more.type = "button";
+        more.textContent = "show all " + (lines || 0) + " lines";
+        var open = false;
+        more.addEventListener("click", function (e) {
+          e.stopPropagation();
+          open = !open;
+          if (node._out) node._out.textContent = open ? full : (out || "");
+          if (node._out) node._out.classList.toggle("toolout--full", open);
+          more.textContent = open ? "show less" : ("show all " + (lines || 0) + " lines");
+          scroll();
+        });
+        node.appendChild(more);
+      }
       if (node._glyph && node._glyph.parentNode) {
         node._glyph.parentNode.replaceChild(
           ic(ok ? "check" : "cross", 15, 2.2, ok ? "var(--ok)" : "var(--bad)"), node._glyph);

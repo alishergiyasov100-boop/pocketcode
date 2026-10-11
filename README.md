@@ -125,6 +125,24 @@ PocketCode raises it to ten minutes and lets the agent ask for up to
 twenty. Change it in Settings -> Command timeout: two minutes, ten, thirty
 or an hour.
 
+## While it works
+
+Five things the terminal gives you that a phone needs more, not less:
+
+- **Stop.** The send button becomes a stop button while it is working. One
+  tap, no hunting for a key combination.
+- **Its plan.** When the agent keeps a checklist, the checklist is on
+  screen and updates itself — done items struck through, the current one
+  spinning, "3 of 7" at the top.
+- **The whole output.** Tool output is trimmed to a couple of lines, with
+  "show all 40 lines" under it when there is more.
+- **A nudge when it is done.** If you left the app, a notification says
+  what it finished with. Turn it off in Settings.
+- **Undo.** Before every message PocketCode takes a git snapshot of the
+  project — `git stash create`, which touches neither your history nor
+  your working tree. "Undo last turn" in the + menu puts the files back,
+  including work you had not committed. Files it newly created stay.
+
 ## How it works
 
 ```

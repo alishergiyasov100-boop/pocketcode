@@ -70,6 +70,8 @@
 
     var e = p.e;
     if (e.type === "user") { U.addYou(e.text); return; }
+    if (e.type === "todos") { U.showTodos && U.showTodos(e.items); return; }
+    if (e.type === "note") { U.addNote && U.addNote(e.text); return; }
     if (e.type === "agent") { U.addSay(esc(e.text)); U.petEvent && U.petEvent("agent_thinking"); return; }
     if (e.type === "think") { U.addStep(short(e.text, 140), true); return; }
 
@@ -80,7 +82,7 @@
       return;
     }
     if (e.type === "tool_done") {
-      U.toolDone(tools[e.id], e.ok, e.out);
+      U.toolDone(tools[e.id], e.ok, e.out, e.full, e.lines);
       delete tools[e.id];
       U.petEvent && U.petEvent(e.ok ? "tool_finished_ok" : "tool_failed", { node: tools[e.id] });
       return;

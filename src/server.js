@@ -83,6 +83,60 @@ function start(cfg) {
     };
   }
 
+  /* ---------- страховка: снимок перед ходом ----------
+     Новичок боится, что агент сломает файлы. git stash create делает
+     коммит-снимок, не трогая ни рабочую папку, ни историю. */
+  let snapshot = null;
+  function git(args, cb) {
+    const p = spawn("git", args, { cwd: cfg.project, env: process.env });
+    let out = "", err = "";
+    p.stdout.on("data", (d) => (out += d));
+    p.stderr.on("data", (d) => (err += d));
+    p.on("close", (code) => cb(code, out.trim(), err.trim()));
+    p.on("error", () => cb(1, "", "no git"));
+  }
+  function takeSnapshot() {
+    git(["rev-parse", "--is-inside-work-tree"], (code) => {
+      if (code !== 0) { snapshot = null; return; }
+      git(["add", "-A", "--intent-to-add"], () => {
+        git(["stash", "create"], (c2, sha) => {
+          git(["rev-parse", "HEAD"], (c3, head) => {
+            snapshot = { sha: sha || null, head: c3 === 0 ? head : null, at: Date.now() };
+          });
+        });
+      });
+    });
+  }
+  function undoTurn(cb) {
+    if (!snapshot) {
+      return git(["rev-parse", "--is-inside-work-tree"], (code) => {
+        cb(code === 0
+          ? "no turn to undo yet — the safety net starts with your next message"
+          : "this folder is not a git repository, so there is no safety net. Run git init here and it will have one.");
+      });
+    }
+    if (!snapshot.sha && !snapshot.head) return cb("nothing to go back to");
+    const target = snapshot.sha || snapshot.head;
+    git(["checkout", target, "--", "."], (code, _o, err) => {
+      if (code !== 0) return cb(err || "git refused");
+      snapshot = null;
+      cb(null);
+    });
+  }
+
+  /* ---------- позвать, когда дело сделано ---------- */
+  function nudge(text) {
+    if (!cfg.notify) return;
+    try {
+      spawn("termux-notification", [
+        "--id", "pocketcode-done",
+        "--title", "PocketCode",
+        "--content", String(text).slice(0, 140),
+        "--priority", "high"
+      ], { stdio: "ignore" }).on("error", () => {});
+    } catch (e) {}
+  }
+
   let sessionSince = Date.now();
   function capLabel(L) {
     const bits = [];
@@ -374,6 +428,9 @@ function start(cfg) {
       });
       }, 2500);
 
+      const last = session.lastText || "";
+      nudge(last ? last.replace(/\s+/g, " ").slice(0, 140) : "Done.");
+
       const u = session.usage();
       day.cost = u.cost;                 /* шлюз отдаёт накопленную стоимость сессии */
       day.tokens = u.tokens;
@@ -466,7 +523,8 @@ function start(cfg) {
         effort: cfg.effort || "",
         language: cfg.replyLanguage || "",
         instructions: cfg.instructions || "",
-        bashTimeoutMs: cfg.bashTimeoutMs || 600000
+        bashTimeoutMs: cfg.bashTimeoutMs || 600000,
+        notify: cfg.notify !== false
       }));
       return;
     }
@@ -480,6 +538,7 @@ function start(cfg) {
           fields.replyLanguageName = String(body.languageName || LANGS[fields.replyLanguage] || "");
         }
         if (body.instructions !== undefined) fields.instructions = String(body.instructions || "");
+        if (body.notify !== undefined) fields.notify = !!body.notify;
         if (body.bashTimeoutMs !== undefined) {
           const t = Number(body.bashTimeoutMs);
           fields.bashTimeoutMs = isFinite(t) && t > 0 ? Math.round(t) : 600000;
@@ -613,6 +672,7 @@ function start(cfg) {
           blast({ t: "state", busy: false });
           return;
         }
+        takeSnapshot();
         const s = ensure();
         if (!s) return;                   /* ensure уже объяснил, что не так */
         blast({ t: "state", busy: true });
@@ -684,7 +744,20 @@ function start(cfg) {
         return;
       }
 
-      if (m.t === "interrupt" && session) { session.interrupt(); return; }
+      if (m.t === "interrupt") {
+        if (session && !session.closed) session.interrupt();
+        blast({ t: "state", busy: false });
+        blast({ t: "ui", e: { type: "note", text: "Stopped. Say what to do instead." } });
+        return;
+      }
+
+      if (m.t === "undo") {
+        undoTurn((err) => {
+          if (err) blast({ t: "error", message: "Could not undo: " + err });
+          else blast({ t: "ui", e: { type: "note", text: "Files are back as they were before that turn. Anything it newly created is still there." } });
+        });
+        return;
+      }
       if (m.t === "stop" && session) { session.stop(); session = null; blast({ t: "state", busy: false }); }
     });
 
