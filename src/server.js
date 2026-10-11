@@ -203,6 +203,25 @@ function start(cfg) {
   const server = http.createServer((req, res) => {
     const url = (req.url || "/").split("?")[0];
 
+    /* настоящий каталог моделей: спрашиваем у шлюза, браузеру туда нельзя */
+    if (url === "/api/models") {
+      if (!cfg.baseUrl) {
+        res.writeHead(200, { "content-type": TYPES[".json"] });
+        res.end(JSON.stringify({ models: [], source: "login", current: cfg.model || null }));
+        return;
+      }
+      probe(cfg.baseUrl, cfg.token).then((r) => {
+        res.writeHead(200, { "content-type": TYPES[".json"] });
+        res.end(JSON.stringify({
+          models: r.ok ? r.models : [],
+          error: r.ok ? null : (r.error || "no answer"),
+          source: cfg.baseUrl,
+          current: cfg.model || null
+        }));
+      });
+      return;
+    }
+
     if (url === "/api/projects") {
       res.writeHead(200, { "content-type": TYPES[".json"] });
       res.end(JSON.stringify({ projects: listProjects(), current: cfg.project }));
@@ -319,6 +338,17 @@ function start(cfg) {
       }
 
       /* сменить папку, в которой работает агент */
+      /* сменить модель на лету */
+      if (m.t === "model" && m.model) {
+        cfg.model = String(m.model);
+        if (!cfg.smallModel) cfg.smallModel = cfg.model;
+        config.save(cfg);
+        if (session && !session.closed) { session.stop(); session = null; }
+        blast({ t: "hello", project: path.basename(cfg.project), cwd: cfg.project, model: cfg.model, busy: false });
+        blast({ t: "usage", u: usageSnapshot() });
+        return;
+      }
+
       if (m.t === "project" && m.path) {
         if (session) { session.stop(); session = null; }
         cfg.project = String(m.path);

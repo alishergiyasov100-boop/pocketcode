@@ -145,6 +145,7 @@
       else if (s.kind === 'row')      { sc = 58; }
       else if (s.kind === 'header')   { sc = 44; edge = 'bottom'; align = 0.9; }
       else if (s.kind === 'button')   { sc = 20; }          // standing on a button looks wrong
+      else if (s.kind === 'floor')    { sc = 34; edge = 'top'; align = 0.12 + 0.76 * d(); }
       else                            { sc = 30; }
 
       if (s.pending) sc += 120;                              // sentinel duty outranks comfort

@@ -465,6 +465,22 @@
   function openSheet(title, rows, onPick) {
     sheet.textContent = "";
     sheet.appendChild(el("div", "sheet__k", title));
+
+    /* длинный список на телефоне без фильтра — мучение */
+    var body = el("div", "sheet__b");
+    if (rows.length > 18) {
+      var f = el("input", "sheet__f");
+      f.type = "search"; f.placeholder = "Filter"; f.autocomplete = "off";
+      f.addEventListener("input", function () {
+        var q = f.value.trim().toLowerCase();
+        Array.prototype.forEach.call(body.children, function (n) {
+          n.style.display = !q || (n._key || "").indexOf(q) >= 0 ? "" : "none";
+        });
+      });
+      sheet.appendChild(f);
+    }
+    sheet.appendChild(body);
+
     rows.forEach(function (r) {
       var b = el("button", "row"); b.type = "button";
       if (r.brand) { var g = el("span", "row__g"); g.appendChild(E.brand(r.brand, 18)); b.appendChild(g); }
@@ -476,7 +492,8 @@
       g2.appendChild(r.on ? ic("check", 17, 2.2, "var(--ok)") : ic("right", 16, 2));
       b.appendChild(g2);
       b.addEventListener("click", function () { closeSheet(); onPick && onPick(r); });
-      sheet.appendChild(b);
+      b._key = ((r.t || "") + " " + (r.d || "")).toLowerCase();
+      body.appendChild(b);
     });
     sheet.setAttribute("data-on", "true");
     scrim.setAttribute("data-on", "true");
@@ -532,18 +549,61 @@
     stripEl = fresh;
   }
 
-  function openModels() {
-    var rows = [];
-    C.models.forEach(function (g) {
-      g.items.forEach(function (m) {
-        rows.push({ t: m.n, d: g.co + " · " + m.d, brand: g.brand, on: m.n === st.model, crew: g.crew });
-      });
+  /* ---------- настоящий каталог моделей ---------- */
+  var BRANDOF = [
+    [/^claude|^anthropic/i, "anthropic", "Anthropic"],
+    [/^gpt|^o[0-9]|^openai/i, "openai", "OpenAI"],
+    [/^kimi|^moonshot/i, "moonshot", "Moonshot"],
+    [/^gemini|^google/i, "google", "Google"],
+    [/^grok|^xai/i, "xai", "xAI"],
+    [/^deepseek/i, "deepseek", "DeepSeek"],
+    [/^mistral|^magistral|^codestral/i, "mistral", "Mistral"],
+    [/^llama|^meta/i, "meta", "Meta"]
+  ];
+  function brandOfModel(id) {
+    for (var i = 0; i < BRANDOF.length; i++) if (BRANDOF[i][0].test(id)) return BRANDOF[i];
+    return [null, null, "Other"];
+  }
+  function groupModels(ids) {
+    var by = {}, order = [];
+    ids.forEach(function (id) {
+      var b = brandOfModel(id);
+      if (!by[b[2]]) { by[b[2]] = { co: b[2], brand: b[1], items: [] }; order.push(b[2]); }
+      by[b[2]].items.push({ n: id, d: null });
     });
-    openSheet("Model", rows, function (m) {
-      st.model = m.t; st.brand = m.brand;
-      if (m.crew && E.SH[m.crew]) E.setCrew(m.crew);
-      syncModel();
-      toast("Now working: " + m.t);
+    return order.map(function (k) { return by[k]; });
+  }
+  function fetchModels(cb) {
+    if (!window.PC_LIVE) return cb(C.models, null);
+    fetch("/api/models").then(function (r) { return r.json(); }).then(function (j) {
+      if (!j.models || !j.models.length) return cb(C.models, j.error || "the engine has no catalogue");
+      cb(groupModels(j.models), null);
+    })["catch"](function () { cb(C.models, "could not reach the engine"); });
+  }
+
+  function openModels() {
+    fetchModels(function (groups, err) {
+      var rows = [];
+      groups.forEach(function (g) {
+        g.items.forEach(function (m) {
+          rows.push({
+            t: m.n,
+            d: g.co + (m.d ? " · " + m.d : ""),
+            brand: g.brand,
+            on: m.n === st.model,
+            crew: g.crew
+          });
+        });
+      });
+      if (err) rows.unshift({ t: "Showing examples", d: err, noop: true });
+      openSheet("Model", rows, function (m) {
+        if (m.noop) return;
+        st.model = m.t; st.brand = m.brand;
+        if (m.crew && E.SH[m.crew]) E.setCrew(m.crew);
+        syncModel();
+        if (window.__pcws) window.__pcws.send(JSON.stringify({ t: "model", model: m.t }));
+        toast("Now working: " + m.t);
+      });
     });
   }
   modelPill.addEventListener("click", openModels);
@@ -695,7 +755,7 @@
   showIdle();
   setStrip(null);
 
-  pet = new E.Pet(stage, 3);
+  pet = new E.Pet(app, 3);
   setTimeout(function () { petEvent("app_opened"); }, 400);
 
   /* в демо показываем образец, в живом режиме его заменит демон */
@@ -705,7 +765,8 @@
     addYou: addYou, addSay: addSay, addStep: addStep, addTool: addTool,
     addCard: addCard, planCard: planCard, askCard: askCard, button: button,
     setStrip: setStrip, setBusy: setBusy, toast: toast, scroll: scroll,
-    clearIdle: clearIdle, fillChips: fillChips, petAct: petAct,
+    clearIdle: clearIdle, fillChips: fillChips, petAct: petAct, petEvent: petEvent,
+    petTyping: function (on) { if (pet && pet.typing) pet.typing(on); },
     el: el, ind: ind, ic: ic, feed: feed, input: ta,
     startClock: function () { t0 = Date.now(); },
     focus: function () { ta.focus(); },
@@ -720,7 +781,8 @@
     },
     setSender: function (fn) { SEND = fn; },
     openModels: openModels, openPerms: openPerms, openLimits: openLimits,
-    openSessions: openSessions, openProjects: openProjects, clearFeed: clearFeed, newSession: function () { pickSession({ sid: "__new" }); },
+    openSessions: openSessions, openProjects: openProjects, clearFeed: clearFeed,
+    fetchModels: fetchModels, newSession: function () { pickSession({ sid: "__new" }); },
     showAccount: showAccount, syncModel: function () { syncModel(); },
     usage: function () { return usageData; },
     pet: function () { return pet; },

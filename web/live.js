@@ -18,8 +18,9 @@
 
     ws.onopen = function () {
       retry = 0; gone = false;
-      strip("CONNECTED", "ok", "pc-done");
-      setTimeout(function () { if (!U.state.busy) strip("READY", "", "pc-dot-fade"); }, 1200);
+      strip("Connected", "ok", "pc-done");
+      U.petEvent && U.petEvent("connection_restored");
+      setTimeout(function () { if (!U.state.busy) strip("Ready", "", "pc-dot-fade"); }, 1200);
     };
 
     ws.onclose = function () {
@@ -55,7 +56,7 @@
       return;
     }
     if (p.t === "usage") { U.showAccount && U.showAccount(p.u); return; }
-    if (p.t === "cleared") { tools = {}; strip(p.resumed ? "Picked up where it left off" : "Ready", "", "pc-dot-fade"); return; }
+    if (p.t === "cleared") { tools = {}; strip(p.resumed ? "Picked up where it left off" : "Ready", "", "pc-dot-fade"); U.petEvent && U.petEvent("app_opened"); return; }
     if (p.t === "state") {
       U.setBusy(p.busy);
       if (p.busy) { U.startClock(); strip("WORKING", "", "pc-ring-px"); }
@@ -66,24 +67,25 @@
 
     var e = p.e;
     if (e.type === "user") { U.addYou(e.text); return; }
-    if (e.type === "agent") { U.addSay(esc(e.text)); return; }
+    if (e.type === "agent") { U.addSay(esc(e.text)); U.petEvent && U.petEvent("agent_thinking"); return; }
     if (e.type === "think") { U.addStep(short(e.text, 140), true); return; }
 
     if (e.type === "tool") {
       tools[e.id] = U.addTool(e.label, "");
-      strip(e.label.toUpperCase(), "", "pc-ring-px");
+      strip(e.label, "", "pc-ring-px");
+      U.petEvent && U.petEvent("tool_started", { node: tools[e.id] });
       return;
     }
     if (e.type === "tool_done") {
       U.toolDone(tools[e.id], e.ok, e.out);
       delete tools[e.id];
-      if (!e.ok) U.petAct("panic");
+      U.petEvent && U.petEvent(e.ok ? "tool_finished_ok" : "tool_failed", { node: tools[e.id] });
       return;
     }
     if (e.type === "turn_done") {
       U.setBusy(false);
-      strip("WAITING ON YOU", "wait", "pc-dots");
-      U.petAct("cheer");
+      strip("Waiting on you", "wait", "pc-dots");
+      U.petEvent && U.petEvent(e.wall ? "agent_stopped" : "agent_finished");
       if (e.cost) U.toast("Spent " + (e.cost < 0.01 ? "<1 cent" : "$" + e.cost.toFixed(2)));
       return;
     }
@@ -106,7 +108,7 @@
     if (!ws || ws.readyState !== 1) { U.toast("Not connected yet", "bad"); return; }
     U.setBusy(true);
     U.startClock();
-    U.petAct("read");
+    U.petEvent && U.petEvent("message_sent");
     /* строка на $ — прямая команда в Termux, без агента */
     if (/^\s*\$\s*/.test(text)) {
       strip("RUNNING", "", "pc-ring-px");
@@ -117,6 +119,10 @@
     ws.send(JSON.stringify({ t: "send", text: text }));
   });
 
-  strip("CONNECTING", "", "pc-dots");
+  strip("Connecting", "", "pc-dots");
+  /* пока печатаешь — питомец это видит */
+  if (U.input) {
+    U.input.addEventListener("input", function () { U.petTyping && U.petTyping(U.input.value.length > 0); });
+  }
   connect();
 })();

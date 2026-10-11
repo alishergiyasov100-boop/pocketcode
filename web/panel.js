@@ -165,21 +165,28 @@
 
   function modelPage() {
     push(page("Model", function (b) {
-      (PR ? PR.all() : []).forEach(function (p) {
-        if (!p.models || !p.models.length) return;
-        var c = group(b, p.name + (p.builtin ? "" : " · yours"));
-        p.models.forEach(function (m) {
-          row(c, {
-            title: m,
-            check: U.state && U.state.model === m,
-            onTap: function () {
-              U.state.model = m;
-              if (p.brand) U.state.brand = p.brand;
-              if (!p.builtin && PR) { PR.store.active = p.id; p.model = m; PR.save(); }
-              U.toast("Now working: " + m);
-              U.syncModel && U.syncModel();
-              pop(); refresh();
-            }
+      var holder = el("div", "");
+      b.appendChild(holder);
+      holder.appendChild(el("div", "pnl__note", "Reading the catalogue…"));
+      U.fetchModels(function (groups, err) {
+        holder.textContent = "";
+        if (err) holder.appendChild(el("div", "pnl__note", "Showing examples — " + err));
+        groups.forEach(function (g) {
+          var c = group(holder, g.co);
+          g.items.forEach(function (m) {
+            row(c, {
+              title: m.n,
+              check: U.state && U.state.model === m.n,
+              onTap: function () {
+                U.state.model = m.n;
+                if (g.brand) U.state.brand = g.brand;
+                if (g.crew && window.PC.SH[g.crew]) window.PC.setCrew(g.crew);
+                if (window.__pcws) window.__pcws.send(JSON.stringify({ t: "model", model: m.n }));
+                U.toast("Now working: " + m.n);
+                U.syncModel && U.syncModel();
+                pop(); refresh();
+              }
+            });
           });
         });
       });

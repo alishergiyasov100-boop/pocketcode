@@ -52,8 +52,37 @@
       });
     }, this);
 
+    /* пол есть всегда — иначе на пустом экране идти некуда.
+       но пол это не низ экрана: ниже подвала питомца не видно */
+    var fy = H - 6;
+    var below = this.host.querySelector(".foot") || this.host.querySelector(".input");
+    if (below) {
+      var rb = below.getBoundingClientRect();
+      if (rb.height) fy = Math.min(fy, (rb.top - r0.top) * k - 2);
+    }
+    var f = {
+      id: "floor", kind: "floor", visible: true, age: 999999,
+      width: W - 8, _x1: 4, _x2: Math.max(60, W - 4),
+      _top: fy, _bottom: fy
+    };
+    list.push(f);
+    map[f.id] = f;
+
     this._surf = map;
     return list;
+  };
+
+  /* площадка во всю ширину на уровне пола */
+  E.Pet.prototype.floorPlat = function () {
+    var W = this.layer.clientWidth || 360, H = this.layer.clientHeight || 700;
+    var y = H - 6;
+    var below = this.host.querySelector(".foot") || this.host.querySelector(".input");
+    if (below) {
+      var r0 = this.host.getBoundingClientRect(), rb = below.getBoundingClientRect();
+      var kk = r0.width ? W / r0.width : 1;
+      if (rb.height) y = Math.min(y, (rb.top - r0.top) * kk - 2);
+    }
+    return { x1: 4, x2: Math.max(60, W - 4), y: y };
   };
 
   function ctxOf(pet, extra) {
@@ -87,6 +116,11 @@
     this.beh = { act: { a: ins.anim, n: ins.anim, ms: Math.max(900, ins.hold || 1600) },
                  place: { n: ins.goto ? "where it is needed" : "where it stands" } };
 
+    if (!this.plat) {                       /* без площадки база дёргала pick каждый кадр */
+      this.plat = this.floorPlat();
+      if (this.y < 2) this.y = this.plat.y;
+    }
+
     if (dest) {
       this.dest = { p: dest.plat, x: dest.x };
       this.phase = "travel";
@@ -106,6 +140,10 @@
 
   /* вместо случайного выбора — спросить мозг */
   E.Pet.prototype.pick = function (t) {
+    if (!this.plat) {
+      this.plat = this.floorPlat();
+      if (this.y < 2) this.y = this.plat.y;
+    }
     var ins = null;
     try { ins = M.tick(Date.now(), ctxOf(this)); } catch (e) {}
     if (ins && this.apply(ins, t)) return;
@@ -119,6 +157,17 @@
   };
 
   E.Pet.prototype.event = function (name, extra) {
+    /* событие пришло с узлом интерфейса — переведём его в поверхность */
+    if (extra && extra.node) {
+      this.scan();
+      var n = extra.node, pid = n.dataset && n.dataset.pid;
+      if (!pid && n.closest) { var up = n.closest("[data-pid]"); pid = up && up.dataset.pid; }
+      if (pid) {
+        var e2 = {}; for (var kk in extra) e2[kk] = extra[kk];
+        e2.toolId = pid; e2.pendingSurface = pid;
+        extra = e2;
+      }
+    }
     var ins = null;
     try { ins = M.onEvent(name, ctxOf(this, extra)); } catch (e) {}
     if (ins) this.apply(ins);

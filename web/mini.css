@@ -1165,3 +1165,18 @@ button {
   line-height: 1.5;
   color: var(--ink3);
 }
+
+.sheet__f {
+  width: 100%;
+  margin: 0 0 4px;
+  padding: 10px 14px;
+  border: 0; border-bottom: 1px solid var(--line);
+  background: var(--sunk);
+  color: var(--ink);
+  font: inherit; font-size: 13px;
+  border-radius: 10px;
+  outline: none;
+  -webkit-appearance: none;
+}
+.sheet__f:focus { background: var(--sunk2); }
+.sheet__f::-webkit-search-cancel-button { -webkit-appearance: none; }

@@ -2,7 +2,7 @@
 window.PC_CONTENT = {
 
   app: {
-    name: "POCKETCODE",
+    name: "POCKETCREW",
     tagline: "Your crew codes. You watch from your phone.",
     tips: [
       "Just say what's broken. <b>“fix the duplicates”</b> beats a two-page spec.",
