@@ -52,6 +52,8 @@ class MainActivity : AppCompatActivity() {
         web = WebView(this).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
+            /* интерфейс обновляется вместе с движком: кэш WebView только мешает */
+            settings.cacheMode = android.webkit.WebSettings.LOAD_NO_CACHE
             settings.mediaPlaybackRequiresUserGesture = false
             setBackgroundColor(Color.BLACK)
             overScrollMode = View.OVER_SCROLL_NEVER

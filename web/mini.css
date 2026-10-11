@@ -1190,3 +1190,11 @@ button {
 
 .cbtn[data-on="true"] { color: var(--bad); animation: pc-mic 1.1s ease-in-out infinite; }
 @keyframes pc-mic { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+
+.note {
+  display: flex; align-items: center; gap: 7px;
+  margin: 10px 2px;
+  font-size: 11.5px;
+  color: var(--ink3);
+  letter-spacing: .01em;
+}

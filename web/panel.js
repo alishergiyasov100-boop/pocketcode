@@ -134,7 +134,9 @@
   }
 
   function languagePage() {
-    push(page("Language", function (b) {
+    push(page("Reply language", function (b) {
+      b.appendChild(el("div", "pnl__note",
+        "The language it writes back in. The app's own buttons stay English."));
       var c = group(b);
       S.languages.languages.forEach(function (l) {
         row(c, {
@@ -143,7 +145,7 @@
           check: l.code === state.lang,
           onTap: function () {
             state.lang = l.code;
-            savePrefs({ language: l.code }, function (ok) {
+            savePrefs({ language: l.code, languageName: l.english || l.name }, function (ok) {
               U.toast(ok ? (l.native || l.name) : "Saved here, the engine did not answer", ok ? "" : "bad");
             });
             pop(); refresh();
@@ -495,7 +497,12 @@
       });
 
       var c3 = group(b, "App");
-      row(c3, { title: "Language", value: langLabel(), onTap: languagePage });
+      row(c3, {
+        title: "Reply language",
+        desc: "What it answers in, not the app's own words",
+        value: langLabel(),
+        onTap: languagePage
+      });
       row(c3, { title: "Theme", value: document.documentElement.getAttribute("data-theme") === "dark" ? "Dark" : "Light", onTap: themePage });
       row(c3, {
         title: "Show the pet", toggle: true, value: state.pet,
@@ -513,7 +520,7 @@
       row(c4, {
         title: "Project folder",
         desc: "Where the agent actually works",
-        value: (U.usage && U.usage() && U.usage().project) || null,
+        value: (U.state && U.state.project) || (U.usage && U.usage() && U.usage().project) || null,
         onTap: function () { close(); setTimeout(function () { U.openProjects && U.openProjects(); }, 240); }
       });
 

@@ -23,6 +23,7 @@ const DEFAULTS = {
   searchEndpoint: "",
   effort: "",
   replyLanguage: "",
+  replyLanguageName: "",
   instructions: ""
 };
 

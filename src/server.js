@@ -171,6 +171,24 @@ function start(cfg) {
 
   /* поиск приезжает отдельным MCP-сервером; без ключа его просто нет */
   const SEARCH_TOOLS = ["mcp__search__web_search", "mcp__search__web_read"];
+  /* штамп меняется от любой правки интерфейса, не только от смены версии */
+  const STAMP = (() => {
+    let v = "1";
+    try { v = String(require("../package.json").version).replace(/[^0-9a-z.]/gi, ""); } catch (e) {}
+    let newest = 0;
+    try {
+      for (const f of fs.readdirSync(WEB)) {
+        const st = fs.statSync(path.join(WEB, f));
+        if (st.mtimeMs > newest) newest = st.mtimeMs;
+      }
+    } catch (e) {}
+    return v + "-" + Math.round(newest / 1000).toString(36);
+  })();
+  function stamped(html) {
+    return String(html).replace(/(src|href)="([a-z0-9_.-]+\.(?:js|css))"/gi,
+      (m, a, f) => a + '="' + f + "?v=" + STAMP + '"');
+  }
+
   function mcpFor(c) {
     if (!c.searchKey) return null;
     const file = path.join(config.DIR, "mcp.json");
@@ -193,11 +211,12 @@ function start(cfg) {
     en: "English", ru: "Russian", uk: "Ukrainian", de: "German", fr: "French",
     es: "Spanish", pt: "Portuguese", it: "Italian", pl: "Polish", tr: "Turkish",
     ar: "Arabic", fa: "Persian", hi: "Hindi", id: "Indonesian", ja: "Japanese",
-    ko: "Korean", zh: "Chinese", kk: "Kazakh", uz: "Uzbek", az: "Azerbaijani"
+    ko: "Korean", zh: "Chinese", kk: "Kazakh", uz: "Uzbek", az: "Azerbaijani",
+    vi: "Vietnamese", he: "Hebrew"
   };
   function systemFor(c) {
     const bits = [];
-    const lang = LANGS[c.replyLanguage];
+    const lang = c.replyLanguageName || LANGS[c.replyLanguage];
     if (lang && c.replyLanguage !== "en") {
       bits.push("Write every reply to the user in " + lang +
                 ". Keep code, file paths, commands and identifiers as they are.");
@@ -319,7 +338,10 @@ function start(cfg) {
       readBody(req).then((body) => {
         const fields = {};
         if (body.effort !== undefined) fields.effort = String(body.effort || "");
-        if (body.language !== undefined) fields.replyLanguage = String(body.language || "");
+        if (body.language !== undefined) {
+          fields.replyLanguage = String(body.language || "");
+          fields.replyLanguageName = String(body.languageName || LANGS[fields.replyLanguage] || "");
+        }
         if (body.instructions !== undefined) fields.instructions = String(body.instructions || "");
         Object.assign(cfg, config.patch(fields));
         if (session && !session.closed) { session.stop(); session = null; }
@@ -411,11 +433,16 @@ function start(cfg) {
     if (!full.startsWith(WEB)) { res.writeHead(403).end("no"); return; }
     fs.readFile(full, (err, buf) => {
       if (err) { res.writeHead(404, { "content-type": "text/plain" }).end("not found"); return; }
+      const type = TYPES[path.extname(full)] || "application/octet-stream";
+      /* в странице проставляем версию в адреса — кэш WebView иначе живучий */
+      const body = /\.html$/i.test(full) ? Buffer.from(stamped(buf.toString("utf8"))) : buf;
       res.writeHead(200, {
-        "content-type": TYPES[path.extname(full)] || "application/octet-stream",
-        "cache-control": "no-cache"
+        "content-type": type,
+        "cache-control": "no-store, no-cache, must-revalidate",
+        "pragma": "no-cache",
+        "expires": "0"
       });
-      res.end(buf);
+      res.end(body);
     });
   });
 

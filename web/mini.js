@@ -206,6 +206,16 @@
   }
 
   /* ---------- элементы ленты ---------- */
+  /* строка-пометка в ленте: в отличие от тоста её видно и через минуту */
+  function addNote(text) {
+    var n = el("div", "note");
+    n.appendChild(ic("dot", 13, 3, "var(--ink3)"));
+    n.appendChild(el("span", "", text));
+    feed.appendChild(n);
+    scroll();
+    return n;
+  }
+
   function addYou(text) { var n = el("div", "you", text); feed.appendChild(n); scroll(); return n; }
 
   function addSay(html, done) {
@@ -717,6 +727,8 @@
         if (!r.ppath || !window.__pcws) return;
         window.__pcws.send(JSON.stringify({ t: "project", path: r.ppath }));
         clearFeed();
+        st.project = r.t;
+        addNote("Now working in " + r.t);
         toast("Working in " + r.t);
       });
     })["catch"](function () { toast("Could not read the folders"); });
@@ -801,7 +813,7 @@
   if (!window.PC_LIVE && window.PC_SET && PC_SET.usage_sample) showAccount(PC_SET.usage_sample);
 
   window.PCUI = {
-    addYou: addYou, addSay: addSay, addStep: addStep, addTool: addTool,
+    addYou: addYou, addSay: addSay, addStep: addStep, addTool: addTool, addNote: addNote,
     addCard: addCard, planCard: planCard, askCard: askCard, button: button,
     setStrip: setStrip, setBusy: setBusy, toast: toast, scroll: scroll,
     clearIdle: clearIdle, fillChips: fillChips, petAct: petAct, petEvent: petEvent,
