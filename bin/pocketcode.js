@@ -272,7 +272,11 @@ async function setup() {
       /* Claude-модели идут первыми: у них нет перевода вызовов инструментов,
          а значит нет и целого класса поломок на чужих шлюзах. */
       const all = models.filter((m) => /claude|gpt|kimi|glm|grok|gemini|deepseek|llama|mistral/i.test(m));
-      const pick = all.filter((m) => /claude/i.test(m)).concat(all.filter((m) => !/claude/i.test(m))).slice(0, 14);
+      /* самый быстрый из безопасных — первым, он же предлагается по умолчанию */
+      const fast = all.filter((m) => /claude-haiku/i.test(m));
+      const rest = all.filter((m) => /claude/i.test(m) && !/claude-haiku/i.test(m));
+      const other = all.filter((m) => !/claude/i.test(m));
+      const pick = fast.concat(rest, other).slice(0, 14);
       pick.forEach((m, i) => console.log("    " + C.dim(String(i + 1).padStart(2)) + "  " + m));
       const n = await ask(rl, "pick a number (or type a model id)", cfg.model || "1");
       cfg.model = /^\d+$/.test(n) ? (pick[(n | 0) - 1] || pick[0]) : n;
