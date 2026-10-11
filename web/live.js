@@ -8,7 +8,7 @@
 
   var U = window.PCUI;
   var tools = {};
-  var ws, retry = 0, ready = false;
+  var ws, retry = 0, ready = false, gone = false;
 
   function strip(text, tone, spin) { U.setStrip(text, tone, spin); }
 
@@ -16,16 +16,26 @@
     ws = new WebSocket(window.PC_LIVE);
 
     ws.onopen = function () {
-      retry = 0;
+      retry = 0; gone = false;
       strip("CONNECTED", "ok", "pc-done");
       setTimeout(function () { if (!U.state.busy) strip("READY", "", "pc-dot-fade"); }, 1200);
     };
 
     ws.onclose = function () {
       ready = false;
-      strip("RECONNECTING", "wait", "pc-dots");
-      retry = Math.min(retry + 1, 6);
-      setTimeout(connect, 400 * retry);
+      retry++;
+      /* короткий обрыв — это нормально, движок сам поднимается за пару секунд.
+         Если не вернулся за десяток попыток, значит его действительно нет. */
+      if (retry < 8) strip("Reconnecting", "wait", "pc-dots");
+      else {
+        strip("Engine is not running", "wait", "pc-dot-fade");
+        if (!gone) {
+          gone = true;
+          U.addSay("The engine is not answering.<br><br>Open Termux and run <code>pocketcode</code>. " +
+                   "It keeps itself up after that, so this should be a one-off.");
+        }
+      }
+      setTimeout(connect, Math.min(400 * retry, 4000));
     };
 
     ws.onerror = function () { /* onclose разберётся */ };

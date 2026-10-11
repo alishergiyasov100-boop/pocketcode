@@ -87,6 +87,85 @@ function probeModels(baseUrl, token) {
   });
 }
 
+/* ---------- присмотр за демоном ----------
+   Android охотно убивает фоновые процессы, а нода может упасть сама.
+   Поэтому боевой режим — отцепленный надзиратель, который поднимает
+   сервер заново, если тот умер. */
+
+const SUP = path.join(config.DIR, "supervisor.pid");
+
+function supervise() {
+  fs.mkdirSync(config.DIR, { recursive: true });
+  fs.writeFileSync(SUP, String(process.pid));
+  const cfg = config.load();
+  if (cfg.wakeLock && has("termux-wake-lock")) {
+    try { execSync("termux-wake-lock", { stdio: "ignore" }); } catch (e) {}
+  }
+  notify("PocketCode is running", "http://127.0.0.1:" + cfg.port);
+
+  let stopping = false;
+  let child = null;
+  let backoff = 1000;
+
+  const spawnOnce = () => {
+    child = spawn(process.execPath, [__filename, "serve"], {
+      stdio: ["ignore", "inherit", "inherit"],
+      env: process.env
+    });
+    const t0 = Date.now();
+    child.on("exit", (code, sig) => {
+      child = null;
+      if (stopping) return;
+      const lived = Date.now() - t0;
+      backoff = lived > 20000 ? 1000 : Math.min(backoff * 2, 30000);
+      console.log("[supervisor] engine exited (" + (sig || code) + "), back in " + Math.round(backoff / 1000) + "s");
+      setTimeout(spawnOnce, backoff);
+    });
+  };
+  spawnOnce();
+
+  const bye = () => {
+    stopping = true;
+    try { fs.unlinkSync(SUP); } catch (e) {}
+    try { fs.unlinkSync(PID); } catch (e) {}
+    if (child) try { child.kill("SIGTERM"); } catch (e) {}
+    if (has("termux-wake-unlock")) { try { execSync("termux-wake-unlock", { stdio: "ignore" }); } catch (e) {} }
+    if (has("termux-notification-remove")) { try { execSync("termux-notification-remove pocketcode", { stdio: "ignore" }); } catch (e) {} }
+    process.exit(0);
+  };
+  process.on("SIGINT", bye);
+  process.on("SIGTERM", bye);
+}
+
+/* отцепить надзирателя от текущего терминала и выйти */
+function up() {
+  const out = fs.openSync(path.join(config.DIR, "daemon.log"), "a");
+  const ch = spawn(process.execPath, [__filename, "supervise"], {
+    detached: true,
+    stdio: ["ignore", out, out],
+    env: process.env
+  });
+  ch.unref();
+  return ch.pid;
+}
+
+/* ---------- сам сервер, без присмотра ---------- */
+function serve() {
+  const cfg = config.load();
+  fs.mkdirSync(config.DIR, { recursive: true });
+  fs.writeFileSync(PID, String(process.pid));
+  const { start: boot } = require("../src/server");
+  const app = boot(cfg);
+  const bye = () => { app.stop(); process.exit(0); };
+  process.on("SIGINT", bye);
+  process.on("SIGTERM", bye);
+  process.on("uncaughtException", (e) => {
+    console.error("[engine] " + (e && e.stack || e));
+    /* падаем намеренно — надзиратель поднимет чистый процесс */
+    process.exit(1);
+  });
+}
+
 /* ---------- жив ли демон ---------- */
 function get(url, ms) {
   return new Promise((res) => {
@@ -222,25 +301,19 @@ async function start(cfg) {
     await status(false);
     return;
   }
-  if (cfg.wakeLock && has("termux-wake-lock")) {
-    try { execSync("termux-wake-lock", { stdio: "ignore" }); } catch (e) {}
+  const pid = up();
+  process.stdout.write("\n  starting");
+  for (let i = 0; i < 20; i++) {
+    await new Promise((r) => setTimeout(r, 700));
+    process.stdout.write(".");
+    if (await get("http://127.0.0.1:" + cfg.port + "/api/status", 900)) {
+      process.stdout.write("\n");
+      await status(false);
+      console.log("  " + C.dim("it keeps itself up — close this terminal if you like") + "\n");
+      return;
+    }
   }
-  fs.mkdirSync(config.DIR, { recursive: true });
-  fs.writeFileSync(PID, String(process.pid));
-  notify("PocketCode is running", "http://127.0.0.1:" + cfg.port);
-
-  const { start: boot } = require("../src/server");
-  const app = boot(cfg);
-
-  const bye = () => {
-    try { fs.unlinkSync(PID); } catch (e) {}
-    if (has("termux-wake-unlock")) { try { execSync("termux-wake-unlock", { stdio: "ignore" }); } catch (e) {} }
-    if (has("termux-notification-remove")) { try { execSync("termux-notification-remove pocketcode", { stdio: "ignore" }); } catch (e) {} }
-    app.stop();
-    process.exit(0);
-  };
-  process.on("SIGINT", bye);
-  process.on("SIGTERM", bye);
+  console.log("\n  " + C.bad("it did not come up") + C.dim("   see " + path.join(config.DIR, "daemon.log")) + "\n");
 }
 
 function notify(title, body) {
@@ -253,11 +326,29 @@ function notify(title, body) {
 }
 
 function stop() {
-  try {
-    const pid = parseInt(fs.readFileSync(PID, "utf8"), 10);
-    process.kill(pid, "SIGTERM");
-    console.log("stopped " + pid);
-  } catch (e) { console.log("nothing running"); }
+  let killed = 0;
+  for (const f of [SUP, PID]) {
+    try {
+      const pid = parseInt(fs.readFileSync(f, "utf8"), 10);
+      process.kill(pid, "SIGTERM");
+      killed++;
+    } catch (e) {}
+    try { fs.unlinkSync(f); } catch (e) {}
+  }
+  console.log(killed ? "stopped" : "nothing running");
+}
+
+/* ---------- запуск при включении телефона ---------- */
+function boot() {
+  const dir = path.join(os.homedir(), ".termux", "boot");
+  fs.mkdirSync(dir, { recursive: true });
+  const f = path.join(dir, "pocketcode");
+  fs.writeFileSync(f,
+    "#!/data/data/com.termux/files/usr/bin/sh\n" +
+    "termux-wake-lock\n" +
+    "exec " + process.execPath + " " + __filename + " supervise\n", { mode: 0o700 });
+  console.log("written " + f);
+  console.log("install the Termux:Boot app once, open it, and it will start on boot");
 }
 
 /* ---------- ярлык на рабочий стол Termux ---------- */
@@ -276,6 +367,9 @@ function widget() {
   if (cmd === "setup") { await setup(); return; }
   if (cmd === "doctor") { doctor(); return; }
   if (cmd === "status" || cmd === "st") { await status(); return; }
+  if (cmd === "serve") { serve(); return; }          /* внутреннее: сервер без присмотра */
+  if (cmd === "supervise") { supervise(); return; }  /* внутреннее: надзиратель */
+  if (cmd === "boot") { boot(); return; }
   if (cmd === "restart") { stop(); await new Promise((r) => setTimeout(r, 1200)); await start(); return; }
   if (cmd === "stop") { stop(); return; }
   if (cmd === "widget") { widget(); return; }
@@ -284,6 +378,7 @@ function widget() {
       "  setup         change project, gateway, model\n" +
       "  status        is it running, on what, how much spent\n" +
       "  restart       stop and start again\n" +
+      "  boot          start automatically when the phone boots\n" +
       "  start         run without the wizard\n" +
       "  doctor        check what is missing\n" +
       "  widget        home-screen shortcut for Termux\n" +

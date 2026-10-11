@@ -29,6 +29,7 @@ Open **http://127.0.0.1:4848** and add it to your home screen — it runs standa
 | `pocketcode status` | is it running, on what, how much it has spent |
 | `pocketcode setup` | change project, gateway or model |
 | `pocketcode restart` | stop and start again |
+| `pocketcode boot` | start it automatically when the phone boots |
 | `pocketcode doctor` | show what is missing |
 | `pocketcode widget` | home-screen shortcut via Termux:Widget |
 | `pocketcode stop` | stop the daemon |
@@ -46,6 +47,12 @@ Open **http://127.0.0.1:4848** and add it to your home screen — it runs standa
 ```
 
 Running `pocketcode` while it is already up says so instead of failing.
+
+It does not need the terminal. `pocketcode` detaches a small supervisor, waits until the
+engine answers, prints the status and hands the prompt back — you can close Termux. If the
+engine dies, the supervisor brings it back within a few seconds, backing off if it keeps
+failing. `pocketcode boot` writes a Termux:Boot hook so it is up after a reboot without you
+touching anything.
 
 ## Engines
 
