@@ -57,6 +57,7 @@ window.PC_CONTENT = {
     freshPlaceholder: "What should it do? Plain words are fine",
     freshChips: [
       "My notes get saved twice, figure it out",
+      "Look up how others solved this, then pick one",
       "Why does the preview render twice?",
       "Add a dark mode toggle"
     ],

@@ -180,6 +180,25 @@ function get(url, ms) {
   });
 }
 
+function post(url, body, ms) {
+  return new Promise((res) => {
+    const mod = url.startsWith("https") ? require("https") : require("http");
+    const data = Buffer.from(JSON.stringify(body || {}));
+    const u = new URL(url);
+    const req = mod.request({
+      hostname: u.hostname, port: u.port, path: u.pathname + u.search, method: "POST",
+      headers: { "content-type": "application/json", "content-length": data.length, "user-agent": "pocketcode" }
+    }, (r) => {
+      let b = "";
+      r.on("data", (d) => (b += d));
+      r.on("end", () => { try { res(JSON.parse(b)); } catch (e) { res(null); } });
+    });
+    req.on("error", () => res(null));
+    req.setTimeout(ms || 4000, () => { req.destroy(); res(null); });
+    req.end(data);
+  });
+}
+
 function pidAlive() {
   try {
     const pid = parseInt(fs.readFileSync(PID, "utf8"), 10);
@@ -285,6 +304,10 @@ async function setup() {
     }
   }
 
+  console.log(C.dim("\n  web search is its own tool — the built-in one needs Anthropic's API"));
+  console.log(C.dim("  a free key with 2500 searches comes from serper.dev, blank = no search"));
+  cfg.searchKey = await ask(rl, "search key (optional)", cfg.searchKey);
+
   const perm = await ask(rl, "how much should it ask you? (ask / edits / auto)", "edits");
   cfg.permissionMode = perm === "ask" ? "default" : perm === "auto" ? "bypassPermissions" : "acceptEdits";
   cfg.port = parseInt(await ask(rl, "port", String(cfg.port)), 10) || 4848;
@@ -294,6 +317,30 @@ async function setup() {
   console.log("\n  saved " + C.dim(file));
   console.log("  start it with " + C.b("pocketcode") + "\n");
   return cfg;
+}
+
+/* ---------- поиск ---------- */
+async function searchKey(key) {
+  const cfg = config.load();
+  if (key === undefined) {
+    console.log("\n  web search  " + (cfg.searchKey ? C.ok("on") + C.dim("  key …" + cfg.searchKey.slice(-4)) : C.dim("off")));
+    console.log(C.dim("  turn it on with ") + C.b("pocketcode search <key>") + C.dim("   free key: serper.dev"));
+    console.log(C.dim("  turn it off with ") + C.b("pocketcode search off") + "\n");
+    return;
+  }
+  cfg.searchKey = key === "off" || key === "none" ? "" : String(key).trim();
+  config.save(cfg);
+  console.log("\n  web search  " + (cfg.searchKey ? C.ok("on") : C.dim("off")));
+
+  /* демон перечитает конфиг только на перезапуске сессии */
+  const live = await get("http://127.0.0.1:" + cfg.port + "/api/status", 1500);
+  if (live) {
+    const r = await post("http://127.0.0.1:" + cfg.port + "/api/search", { key: cfg.searchKey });
+    if (r && r.ok) console.log(C.dim("  the running app picked it up\n"));
+    else console.log(C.dim("  restart it to pick this up: ") + C.b("pocketcode restart") + "\n");
+  } else {
+    console.log(C.dim("  start the app with ") + C.b("pocketcode") + "\n");
+  }
 }
 
 /* ---------- запуск ---------- */
@@ -377,6 +424,7 @@ function widget() {
   if (cmd === "restart") { stop(); await new Promise((r) => setTimeout(r, 1200)); await start(); return; }
   if (cmd === "stop") { stop(); return; }
   if (cmd === "widget") { widget(); return; }
+  if (cmd === "search") { await searchKey(process.argv[3]); return; }
   if (cmd === "-h" || cmd === "--help") {
     console.log("\n" + C.b("pocketcode") + "          set up if needed, then run\n" +
       "  setup         change project, gateway, model\n" +

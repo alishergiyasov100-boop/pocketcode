@@ -168,12 +168,36 @@ function start(cfg) {
     for (const c of clients) c.send(s);
   }
 
+  /* поиск приезжает отдельным MCP-сервером; без ключа его просто нет */
+  const SEARCH_TOOLS = ["mcp__search__web_search", "mcp__search__web_read"];
+  function mcpFor(c) {
+    if (!c.searchKey) return null;
+    const file = path.join(config.DIR, "mcp.json");
+    const env = { POCKETCODE_SEARCH_KEY: c.searchKey };
+    if (c.searchEndpoint) env.POCKETCODE_SEARCH_ENDPOINT = c.searchEndpoint;
+    fs.writeFileSync(file, JSON.stringify({
+      mcpServers: {
+        search: {
+          command: process.execPath,
+          args: [path.join(__dirname, "search.js")],
+          env
+        }
+      }
+    }, null, 2));
+    return file;
+  }
+  function toolsFor(c) {
+    const base = c.allowedTools || [];
+    return c.searchKey ? base.concat(SEARCH_TOOLS.filter((t) => base.indexOf(t) < 0)) : base;
+  }
+
   function ensure() {
     if (session && !session.closed) return session;
     session = new Session({
       cwd: cfg.project,
       permissionMode: cfg.permissionMode,
-      allowedTools: cfg.allowedTools,
+      allowedTools: toolsFor(cfg),
+      mcpConfig: mcpFor(cfg),
       bare: cfg.bare,
       model: cfg.model || undefined,
       resume: cfg.resume || undefined,
@@ -231,6 +255,32 @@ function start(cfg) {
     if (url === "/api/sessions") {
       res.writeHead(200, { "content-type": TYPES[".json"] });
       res.end(JSON.stringify({ sessions: listSessions(), project: path.basename(cfg.project) }));
+      return;
+    }
+
+    if (url === "/api/search" && req.method === "GET") {
+      res.writeHead(200, { "content-type": TYPES[".json"] });
+      res.end(JSON.stringify({
+        on: !!cfg.searchKey,
+        hint: cfg.searchKey ? "…" + String(cfg.searchKey).slice(-4) : "",
+        endpoint: cfg.searchEndpoint || "https://google.serper.dev/search"
+      }));
+      return;
+    }
+
+    if (url === "/api/search" && req.method === "POST") {
+      readBody(req).then((body) => {
+        cfg.searchKey = String(body.key || "").trim();
+        cfg.searchEndpoint = String(body.endpoint || "").trim();
+        config.save(cfg);
+        if (session && !session.closed) { session.stop(); session = null; }
+        blast({ t: "hello", project: path.basename(cfg.project), cwd: cfg.project, model: cfg.model || "default", busy: false });
+        res.writeHead(200, { "content-type": TYPES[".json"] });
+        res.end(JSON.stringify({ ok: true, on: !!cfg.searchKey }));
+      }).catch((e) => {
+        res.writeHead(400, { "content-type": TYPES[".json"] });
+        res.end(JSON.stringify({ ok: false, error: String(e && e.message || e) }));
+      });
       return;
     }
 

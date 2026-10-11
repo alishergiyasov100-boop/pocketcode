@@ -163,6 +163,80 @@
     }, pop));
   }
 
+  /* ---------- поиск ---------- */
+  var searchState = { on: false, hint: "", endpoint: "", loaded: false };
+
+  function loadSearch(cb) {
+    if (!window.PC_LIVE) { searchState.loaded = true; return cb && cb(); }
+    fetch("/api/search").then(function (r) { return r.json(); }).then(function (j) {
+      searchState.on = !!j.on;
+      searchState.hint = j.hint || "";
+      searchState.endpoint = j.endpoint || "";
+      searchState.loaded = true;
+      cb && cb();
+    })["catch"](function () { searchState.loaded = true; cb && cb(); });
+  }
+
+  function searchPage() {
+    push(page("Web search", function (b) {
+      var c = group(b, searchState.on ? "On" : "Off");
+      row(c, {
+        title: "Status",
+        value: searchState.on ? "ready" + (searchState.hint ? " · " + searchState.hint : "") : "no key yet",
+        flat: true
+      });
+
+      b.appendChild(el("div", "pnl__note",
+        "Its own tool, not the built-in one — that goes through Anthropic and cannot reach your gateway. " +
+        "A free key with 2500 searches comes from serper.dev."));
+
+      var key = field(b, "Search key", {
+        placeholder: searchState.on ? "already set — paste to replace" : "paste the key",
+        type: "password"
+      });
+
+      var acts = el("div", "pnl__acts");
+      var save = el("button", "pnl__btn pnl__btn--go", searchState.on ? "Replace the key" : "Turn it on");
+      save.type = "button";
+      save.addEventListener("click", function () {
+        var v = key.value.trim();
+        if (!v) { U.toast("Paste a key first", "bad"); return; }
+        save.disabled = true; save.textContent = "Saving…";
+        fetch("/api/search", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ key: v })
+        }).then(function (r) { return r.json(); }).then(function (j) {
+          searchState.on = !!j.on;
+          U.toast(j.on ? "Web search is on" : "Could not turn it on", j.on ? "" : "bad");
+          pop(); refresh();
+        })["catch"](function () {
+          save.disabled = false; save.textContent = "Turn it on";
+          U.toast("The engine did not answer", "bad");
+        });
+      });
+      acts.appendChild(save);
+
+      if (searchState.on) {
+        var off = el("button", "pnl__btn", "Turn it off");
+        off.type = "button";
+        off.addEventListener("click", function () {
+          fetch("/api/search", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ key: "" })
+          }).then(function () {
+            searchState.on = false;
+            U.toast("Web search is off");
+            pop(); refresh();
+          })["catch"](function () { U.toast("The engine did not answer", "bad"); });
+        });
+        acts.appendChild(off);
+      }
+      b.appendChild(acts);
+    }, pop));
+  }
+
   function modelPage() {
     push(page("Model", function (b) {
       var holder = el("div", "");
@@ -329,6 +403,12 @@
         desc: "Point it at your own gateway",
         onTap: providersPage
       });
+      row(c1, {
+        title: "Web search",
+        value: searchState.on ? "on" : "off",
+        desc: "Lets it look things up and read pages",
+        onTap: searchPage
+      });
 
       var c2 = group(b, "Behaviour");
       row(c2, {
@@ -368,8 +448,8 @@
   function refresh() { reset(); push(root()); }
 
   function open(x, y) {
-    if (PR) PR.load(function () { reset(); push(root()); });
-    else { reset(); push(root()); }
+    var draw = function () { reset(); push(root()); };
+    loadSearch(function () { if (PR) PR.load(draw); else draw(); });
     scrim.setAttribute("data-on", "true");
     panel.setAttribute("data-on", "true");
     if (window.FX) {

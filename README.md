@@ -30,6 +30,7 @@ Open **http://127.0.0.1:4848** and add it to your home screen — it runs standa
 | `pocketcode setup` | change project, gateway or model |
 | `pocketcode restart` | stop and start again |
 | `pocketcode boot` | start it automatically when the phone boots |
+| `pocketcode search <key>` | let it search the web (`off` to stop) |
 | `pocketcode doctor` | show what is missing |
 | `pocketcode widget` | home-screen shortcut via Termux:Widget |
 | `pocketcode stop` | stop the daemon |
@@ -69,6 +70,21 @@ Anthropic-compatible endpoint instead — your own gateway, a proxy, anything th
 ```
 
 Config lives in `~/.pocketcode/config.json`.
+
+## Web search
+
+The agent's built-in search goes through Anthropic's own API, so behind a
+gateway it is simply not there. PocketCode ships its own instead: a small
+MCP server (`src/search.js`) with two tools — `web_search` and `web_read`,
+the second one opens a page and hands back plain text.
+
+It needs a search key. A free one with 2500 searches comes from serper.dev,
+takes a minute and no card. Paste it in Settings → Web search on the phone,
+or run `pocketcode search <key>`. Without a key the tools are not loaded at
+all, and nothing else changes.
+
+While search is on the agent is given that MCP server and no other, so what
+it can reach is exactly what PocketCode ships.
 
 ## How it works
 

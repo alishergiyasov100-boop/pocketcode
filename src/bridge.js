@@ -16,6 +16,7 @@ const CLAUDE = process.env.CLAUDE_BIN || "claude";
 /* ---------- человеческие подписи вместо имён инструментов ---------- */
 
 const base = (p) => (p ? path.basename(String(p)) : "");
+const hostOf = (u) => { try { return new URL(String(u)).host; } catch (e) { return String(u || ""); } };
 const clip = (s, n) => {
   s = String(s == null ? "" : s).replace(/\s+/g, " ").trim();
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
@@ -33,6 +34,8 @@ function humanize(name, input) {
     case "Bash":       return describeBash(i.command, i.description);
     case "WebFetch":   return `Opened ${clip(i.url, 48)}`;
     case "WebSearch":  return `Searched the web for ${clip(i.query, 40)}`;
+    case "mcp__search__web_search": return `Searched the web for ${clip(i.query, 40)}`;
+    case "mcp__search__web_read":   return `Read ${clip(hostOf(i.url), 44)}`;
     case "Task":       return `Sent a helper to ${clip(i.description, 40)}`;
     case "TodoWrite":  return "Updated its checklist";
     default:           return `${name}${i.description ? " · " + clip(i.description, 40) : ""}`;
@@ -110,6 +113,13 @@ class Session extends EventEmitter {
     if (o.allowedTools && o.allowedTools.length) args.push("--allowedTools", o.allowedTools.join(","));
     if (o.disallowedTools && o.disallowedTools.length) args.push("--disallowedTools", o.disallowedTools.join(","));
     if (o.model) args.push("--model", o.model);
+
+    /* поиск приезжает своим MCP-сервером: встроенный WebSearch ходит
+       через API Anthropic и мимо чужого шлюза не работает */
+    if (o.mcpConfig) {
+      args.push("--mcp-config", o.mcpConfig);
+      args.push("--strict-mcp-config");
+    }
     if (o.extraArgs) args.push(...o.extraArgs);
 
     this.args = args;

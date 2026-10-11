@@ -18,7 +18,9 @@ const DEFAULTS = {
   bare: true,
   wakeLock: true,
   providers: [],
-  activeProvider: null
+  activeProvider: null,
+  searchKey: "",
+  searchEndpoint: ""
 };
 
 function load() {
