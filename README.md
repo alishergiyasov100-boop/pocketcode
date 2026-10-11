@@ -87,6 +87,18 @@ all, and nothing else changes.
 While search is on the agent is given that MCP server and no other, so what
 it can reach is exactly what PocketCode ships.
 
+## When requests do not go through
+
+Usually it is not the gateway, it is the agent binary. A half-finished
+`npm i -g @anthropic-ai/claude-code` leaves a few-hundred-byte stub whose
+native binary never downloaded. If that stub sits first in PATH, every
+request dies with `Exec format error` and the app looks silent.
+
+PocketCode no longer trusts PATH: it tries every `claude` it can find,
+runs `--version` on each, and uses the first that actually answers,
+remembering it in the config. `pocketcode status` names the binary when
+it had to skip a broken one.
+
 ## How it works
 
 ```

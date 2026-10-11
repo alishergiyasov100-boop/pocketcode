@@ -10,6 +10,7 @@ const { spawn } = require("child_process");
 const { Session } = require("./bridge");
 const { attach } = require("./ws");
 const config = require("./config");
+const claudeBin = require("./claude");
 
 const WEB = path.join(__dirname, "..", "web");
 const TYPES = {
@@ -210,15 +211,32 @@ function start(cfg) {
     return c.searchKey ? base.concat(SEARCH_TOOLS.filter((t) => base.indexOf(t) < 0)) : base;
   }
 
+  /* бинарь ищем один раз и запоминаем: PATH может указывать на обломок */
+  let BIN = null;
+  function engineBin() {
+    if (BIN && claudeBin.works(BIN)) return BIN;
+    BIN = claudeBin.resolve(cfg);
+    if (BIN && BIN !== cfg.claudeBin) Object.assign(cfg, config.patch({ claudeBin: BIN }));
+    return BIN;
+  }
+
   function ensure() {
     if (session && !session.closed) return session;
     /* правки из терминала должны доезжать без перезапуска демона */
     Object.assign(cfg, config.load());
+
+    const bin = engineBin();
+    if (!bin) {
+      blast({ t: "error", message: claudeBin.why(cfg) });
+      blast({ t: "state", busy: false });
+      return null;
+    }
     session = new Session({
       cwd: cfg.project,
       permissionMode: cfg.permissionMode,
       allowedTools: toolsFor(cfg),
       mcpConfig: mcpFor(cfg),
+      bin: bin,
       effort: EFFORT[cfg.effort] || undefined,
       systemPrompt: systemFor(cfg) || undefined,
       bare: cfg.bare,
@@ -237,7 +255,13 @@ function start(cfg) {
       blast({ t: "usage", u: usageSnapshot() });
     });
     session.on("session", (id) => { cfg.resume = id; config.patch({ resume: id }); });
-    session.on("stderr", (d) => process.stderr.write("[claude] " + d));
+    session.on("stderr", (d) => {
+      process.stderr.write("[claude] " + d);
+      if (/native binary not installed|Exec format error/i.test(String(d))) {
+        BIN = null;                       /* этот бинарь мёртв, поищем другой */
+        blast({ t: "error", message: claudeBin.why(cfg) });
+      }
+    });
     session.on("error", (e) => blast({ t: "error", message: String(e && e.message || e) }));
     session.on("exit", (x) => {
       blast({ t: "state", busy: false });
@@ -412,6 +436,7 @@ function start(cfg) {
 
       if (m.t === "send" && m.text) {
         const s = ensure();
+        if (!s) return;                   /* ensure уже объяснил, что не так */
         blast({ t: "state", busy: true });
         try { s.send(String(m.text)); }
         catch (e) { blast({ t: "error", message: String(e.message || e) }); }

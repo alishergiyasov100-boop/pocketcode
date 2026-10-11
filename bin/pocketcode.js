@@ -259,6 +259,14 @@ async function status(quiet) {
   } else {
     console.log("  version     " + C.b("v" + PKG.version));
   }
+  const cb = require("../src/claude");
+  const bin = cb.resolve(cfg);
+  const onPath = spawnSync("sh", ["-c", "command -v claude"], { encoding: "utf8" }).stdout.trim();
+  if (!bin) {
+    console.log("  engine bin  " + C.bad("nothing runs") + C.dim("  " + cb.why(cfg)));
+  } else if (onPath && bin !== onPath) {
+    console.log("  engine bin  " + C.dim(bin) + C.dim("   (" + onPath + " is broken, skipping it)"));
+  }
   console.log("  gateway     " + (gw ? C.ok("answering") + C.dim(" in " + gw) : C.bad("no answer")) + C.dim("  " + cfg.baseUrl));
   }
   console.log("  agent       " + (st.busy ? C.warn("working right now") : "idle"));

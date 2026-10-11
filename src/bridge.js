@@ -11,7 +11,7 @@ const { spawn } = require("child_process");
 const { EventEmitter } = require("events");
 const path = require("path");
 
-const CLAUDE = process.env.CLAUDE_BIN || "claude";
+const CLAUDE = process.env.CLAUDE_BIN || "claude";   /* запасной вариант */
 
 /* ---------- человеческие подписи вместо имён инструментов ---------- */
 
@@ -125,7 +125,8 @@ class Session extends EventEmitter {
     if (o.extraArgs) args.push(...o.extraArgs);
 
     this.args = args;
-    this.proc = spawn(CLAUDE, args, {
+    this.bin = o.bin || CLAUDE;
+    this.proc = spawn(this.bin, args, {
       cwd: o.cwd || process.cwd(),
       env: Object.assign({}, process.env, o.env || {}),
       stdio: ["pipe", "pipe", "pipe"]
