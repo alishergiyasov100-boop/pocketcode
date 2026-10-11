@@ -86,6 +86,30 @@ function start(cfg) {
     });
   }
 
+  /* ---------- какие проекты вообще есть ---------- */
+  function listProjects() {
+    const home = require("os").homedir();
+    const roots = [path.join(home, "projects"), home];
+    const seen = new Set();
+    const out = [];
+    for (const root of roots) {
+      let names = [];
+      try { names = fs.readdirSync(root, { withFileTypes: true }); } catch (e) { continue; }
+      for (const d of names) {
+        if (!d.isDirectory() || d.name.startsWith(".")) continue;
+        const full = path.join(root, d.name);
+        if (seen.has(full)) continue;
+        seen.add(full);
+        let at = 0, git = false;
+        try { at = fs.statSync(full).mtimeMs; } catch (e) {}
+        try { git = fs.existsSync(path.join(full, ".git")); } catch (e) {}
+        out.push({ name: d.name, path: full, at, git, current: full === cfg.project });
+      }
+      if (root === home) break;
+    }
+    return out.sort((a, b) => (b.git - a.git) || (b.at - a.at)).slice(0, 60);
+  }
+
   /* ---------- настоящие сессии с диска ----------
      Claude Code складывает их в ~/.claude/projects/<путь-через-дефисы>/<id>.jsonl.
      Формат внутренний, поэтому читаем осторожно: только первое сообщение
@@ -178,6 +202,12 @@ function start(cfg) {
 
   const server = http.createServer((req, res) => {
     const url = (req.url || "/").split("?")[0];
+
+    if (url === "/api/projects") {
+      res.writeHead(200, { "content-type": TYPES[".json"] });
+      res.end(JSON.stringify({ projects: listProjects(), current: cfg.project }));
+      return;
+    }
 
     if (url === "/api/sessions") {
       res.writeHead(200, { "content-type": TYPES[".json"] });
@@ -285,6 +315,18 @@ function start(cfg) {
           blast({ t: "ui", e: { type: "tool_done", id, label: "Shell failed", ok: false, out: String(e.message) } });
           blast({ t: "state", busy: false });
         });
+        return;
+      }
+
+      /* сменить папку, в которой работает агент */
+      if (m.t === "project" && m.path) {
+        if (session) { session.stop(); session = null; }
+        cfg.project = String(m.path);
+        cfg.resume = null;
+        config.save(cfg);
+        blast({ t: "cleared", project: path.basename(cfg.project) });
+        blast({ t: "hello", project: path.basename(cfg.project), cwd: cfg.project, model: cfg.model || "default", busy: false });
+        blast({ t: "state", busy: false });
         return;
       }
 

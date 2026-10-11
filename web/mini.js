@@ -575,8 +575,12 @@
     setStrip(null);
   }
 
-  function sessionRows(list) {
+  function sessionRows(list, project) {
     var rows = [{ t: "New session", d: "start from a blank page", sid: "__new" }];
+    if (!list.length) {
+      rows.push({ t: "Nothing here yet", d: project ? "no past runs in " + project : "no past runs", sid: null });
+      return rows;
+    }
     list.forEach(function (x) {
       rows.push({
         t: x.title || "Untitled",
@@ -595,6 +599,7 @@
       toast("New session");
       return;
     }
+    if (!r.sid) return;
     if (r.sid && SEND && window.__pcws) {
       window.__pcws.send(JSON.stringify({ t: "resume", id: r.sid }));
       clearFeed();
@@ -602,6 +607,20 @@
       return;
     }
     toast("Start the engine to open past sessions");
+  }
+
+  function openProjects() {
+    if (!window.PC_LIVE) { toast("Start the engine to switch projects"); return; }
+    fetch("/api/projects").then(function (r) { return r.json(); }).then(function (j) {
+      openSheet("Project folder", (j.projects || []).map(function (p) {
+        return { t: p.name, d: (p.git ? "git · " : "") + p.path.replace(/^.*\/home\//, "~/"), on: p.current, ppath: p.path };
+      }), function (r) {
+        if (!r.ppath || !window.__pcws) return;
+        window.__pcws.send(JSON.stringify({ t: "project", path: r.ppath }));
+        clearFeed();
+        toast("Working in " + r.t);
+      });
+    })["catch"](function () { toast("Could not read the folders"); });
   }
 
   function openSessions() {
@@ -612,9 +631,9 @@
       return;
     }
     fetch("/api/sessions").then(function (r) { return r.json(); }).then(function (j) {
-      openSheet("Sessions", sessionRows(j.sessions || []), pickSession);
+      openSheet("Sessions", sessionRows(j.sessions || [], j.project), pickSession);
     })["catch"](function () {
-      openSheet("Sessions", sessionRows([]), pickSession);
+      openSheet("Sessions", sessionRows([], null), pickSession);
     });
   }
 
@@ -701,7 +720,7 @@
     },
     setSender: function (fn) { SEND = fn; },
     openModels: openModels, openPerms: openPerms, openLimits: openLimits,
-    openSessions: openSessions, clearFeed: clearFeed, newSession: function () { pickSession({ sid: "__new" }); },
+    openSessions: openSessions, openProjects: openProjects, clearFeed: clearFeed, newSession: function () { pickSession({ sid: "__new" }); },
     showAccount: showAccount, syncModel: function () { syncModel(); },
     usage: function () { return usageData; },
     pet: function () { return pet; },
