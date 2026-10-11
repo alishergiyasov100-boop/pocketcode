@@ -242,6 +242,42 @@
     }, pop));
   }
 
+  /* ---------- сколько ждать одну команду ---------- */
+  var TIMEOUTS = [
+    { ms: 120000,  t: "2 minutes",  d: "Claude's own default. Too short for builds." },
+    { ms: 600000,  t: "10 minutes", d: "Enough for npm install and most builds." },
+    { ms: 1800000, t: "30 minutes", d: "Long compiles, big downloads." },
+    { ms: 3600000, t: "1 hour",     d: "Whatever it takes." }
+  ];
+
+  function timeoutLabel() {
+    var ms = state.bashTimeoutMs || 600000;
+    var hit = TIMEOUTS.filter(function (x) { return x.ms === ms; })[0];
+    return hit ? hit.t : Math.round(ms / 60000) + " minutes";
+  }
+
+  function timeoutPage() {
+    push(page("Command timeout", function (b) {
+      b.appendChild(el("div", "pnl__note",
+        "A shell command that runs past this is killed. Claude stops at two minutes " +
+        "by default, which on a phone reads as \"it cannot do long jobs\"."));
+      var c = group(b);
+      TIMEOUTS.forEach(function (x) {
+        row(c, {
+          title: x.t, desc: x.d,
+          check: (state.bashTimeoutMs || 600000) === x.ms,
+          onTap: function () {
+            state.bashTimeoutMs = x.ms;
+            savePrefs({ bashTimeoutMs: x.ms }, function (ok) {
+              U.toast(ok ? "One command may now run " + x.t : "The engine did not answer", ok ? "" : "bad");
+            });
+            pop(); refresh();
+          }
+        });
+      });
+    }, pop));
+  }
+
   function notesPage() {
     push(page("Custom instructions", function (b) {
       b.appendChild(el("div", "pnl__note",
@@ -317,6 +353,7 @@
     if (!window.PC_LIVE) return cb && cb();
     fetch("/api/prefs").then(function (r) { return r.json(); }).then(function (j) {
       if (j.effort) state.effort = j.effort;
+      if (j.bashTimeoutMs) state.bashTimeoutMs = j.bashTimeoutMs;
       if (j.language) state.lang = j.language;
       state.instructions = j.instructions || "";
       cb && cb();
@@ -575,6 +612,12 @@
         title: "Ask before acting",
         value: (PC_CONTENT.perms.items.filter(function (p) { return p.on; })[0] || {}).t,
         onTap: function () { close(); setTimeout(function () { U.openPerms && U.openPerms(); }, 240); }
+      });
+      row(c2, {
+        title: "Command timeout",
+        desc: "How long one shell command may run",
+        value: timeoutLabel(),
+        onTap: timeoutPage
       });
       row(c2, {
         title: "Custom instructions",

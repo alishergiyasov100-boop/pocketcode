@@ -465,7 +465,8 @@ function start(cfg) {
       res.end(JSON.stringify({
         effort: cfg.effort || "",
         language: cfg.replyLanguage || "",
-        instructions: cfg.instructions || ""
+        instructions: cfg.instructions || "",
+        bashTimeoutMs: cfg.bashTimeoutMs || 600000
       }));
       return;
     }
@@ -479,6 +480,10 @@ function start(cfg) {
           fields.replyLanguageName = String(body.languageName || LANGS[fields.replyLanguage] || "");
         }
         if (body.instructions !== undefined) fields.instructions = String(body.instructions || "");
+        if (body.bashTimeoutMs !== undefined) {
+          const t = Number(body.bashTimeoutMs);
+          fields.bashTimeoutMs = isFinite(t) && t > 0 ? Math.round(t) : 600000;
+        }
         Object.assign(cfg, config.patch(fields));
         if (session && !session.closed) { session.stop(); session = null; }
         res.writeHead(200, { "content-type": TYPES[".json"] });

@@ -27,7 +27,8 @@ const DEFAULTS = {
   instructions: "",
   limits: { window: "week", tokens: 0, costUsd: 0, turns: 0 },
   meterTokens: null,
-  meterCost: null
+  meterCost: null,
+  bashTimeoutMs: 600000      /* 2 минуты по умолчанию у Клода — на телефоне мало */
 };
 
 function load() {
@@ -66,6 +67,14 @@ function envFor(cfg) {
     env.ANTHROPIC_DEFAULT_HAIKU_MODEL = small;
   }
   env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1";
+
+  /* Bash у Клода режет команду на двух минутах — для сборки на телефоне
+     этого мало, а со стороны выглядит как «агент не умеет долгие задачи» */
+  const t = Number(cfg.bashTimeoutMs);
+  const ms = isFinite(t) && t > 0 ? Math.round(t) : 600000;
+  env.BASH_DEFAULT_TIMEOUT_MS = String(ms);
+  env.BASH_MAX_TIMEOUT_MS = String(Math.max(ms, ms * 2));
+
   return env;
 }
 

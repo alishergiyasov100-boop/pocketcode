@@ -114,6 +114,17 @@ Set a cap in Settings -> Budget: turns, tokens, dollars, per day or week.
 The bar then means something, and at the line sending pauses until the
 window rolls over instead of quietly spending more.
 
+## Long commands
+
+Claude's Bash tool kills anything still running at two minutes. On a phone
+that is barely enough for `npm install`, and from the app it reads as "the
+agent cannot do long jobs" — the command comes back as exit code 143,
+`Command timed out after 2m 0s`.
+
+PocketCode raises it to ten minutes and lets the agent ask for up to
+twenty. Change it in Settings -> Command timeout: two minutes, ten, thirty
+or an hour.
+
 ## How it works
 
 ```
