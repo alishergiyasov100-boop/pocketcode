@@ -14,6 +14,7 @@
 
   function connect() {
     ws = new WebSocket(window.PC_LIVE);
+    window.__pcws = ws;
 
     ws.onopen = function () {
       retry = 0; gone = false;
@@ -54,6 +55,7 @@
       return;
     }
     if (p.t === "usage") { U.showAccount && U.showAccount(p.u); return; }
+    if (p.t === "cleared") { tools = {}; strip(p.resumed ? "Picked up where it left off" : "Ready", "", "pc-dot-fade"); return; }
     if (p.t === "state") {
       U.setBusy(p.busy);
       if (p.busy) { U.startClock(); strip("WORKING", "", "pc-ring-px"); }

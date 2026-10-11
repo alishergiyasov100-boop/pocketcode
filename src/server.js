@@ -86,6 +86,59 @@ function start(cfg) {
     });
   }
 
+  /* ---------- настоящие сессии с диска ----------
+     Claude Code складывает их в ~/.claude/projects/<путь-через-дефисы>/<id>.jsonl.
+     Формат внутренний, поэтому читаем осторожно: только первое сообщение
+     пользователя на заголовок, остальное берём из файловой системы. */
+
+  function sessionsDir() {
+    const slug = String(cfg.project).replace(/[\/\\.]/g, "-");
+    return path.join(require("os").homedir(), ".claude", "projects", slug);
+  }
+
+  function titleOf(file) {
+    let fd;
+    try {
+      fd = fs.openSync(file, "r");
+      const buf = Buffer.alloc(Math.min(64 * 1024, fs.fstatSync(fd).size));
+      fs.readSync(fd, buf, 0, buf.length, 0);
+      for (const line of buf.toString("utf8").split("\n")) {
+        if (!line.trim()) continue;
+        let j;
+        try { j = JSON.parse(line); } catch (e) { continue; }
+        if (j.type !== "user") continue;
+        const c = j.message && j.message.content;
+        const text = typeof c === "string"
+          ? c
+          : Array.isArray(c) ? (c.find((x) => x.type === "text") || {}).text : null;
+        if (text && text.trim()) return text.replace(/\s+/g, " ").trim().slice(0, 90);
+      }
+    } catch (e) { /* файла нет или он занят — не беда */ }
+    finally { if (fd !== undefined) try { fs.closeSync(fd); } catch (e) {} }
+    return null;
+  }
+
+  function listSessions() {
+    const dir = sessionsDir();
+    let names = [];
+    try { names = fs.readdirSync(dir).filter((f) => f.endsWith(".jsonl")); } catch (e) { return []; }
+    const live = session && !session.closed ? session.id : null;
+    return names.map((f) => {
+      const full = path.join(dir, f);
+      let st = null;
+      try { st = fs.statSync(full); } catch (e) {}
+      return {
+        id: f.replace(/\.jsonl$/, ""),
+        title: titleOf(full),
+        at: st ? st.mtimeMs : 0,
+        size: st ? st.size : 0,
+        current: f.replace(/\.jsonl$/, "") === live
+      };
+    }).filter((x) => x.size > 200)          /* пустые черновики не показываем */
+      .sort((a, b) => b.at - a.at)
+      .slice(0, 40);
+  }
+
   function blast(obj) {
     const s = JSON.stringify(obj);
     for (const c of clients) c.send(s);
@@ -125,6 +178,12 @@ function start(cfg) {
 
   const server = http.createServer((req, res) => {
     const url = (req.url || "/").split("?")[0];
+
+    if (url === "/api/sessions") {
+      res.writeHead(200, { "content-type": TYPES[".json"] });
+      res.end(JSON.stringify({ sessions: listSessions(), project: path.basename(cfg.project) }));
+      return;
+    }
 
     if (url === "/api/providers" && req.method === "GET") {
       res.writeHead(200, { "content-type": TYPES[".json"] });
@@ -226,6 +285,24 @@ function start(cfg) {
           blast({ t: "ui", e: { type: "tool_done", id, label: "Shell failed", ok: false, out: String(e.message) } });
           blast({ t: "state", busy: false });
         });
+        return;
+      }
+
+      /* начать с чистого листа: старый процесс закрываем, resume сбрасываем */
+      if (m.t === "new") {
+        if (session) { session.stop(); session = null; }
+        cfg.resume = null;
+        blast({ t: "cleared" });
+        blast({ t: "state", busy: false });
+        return;
+      }
+
+      /* продолжить прошлую сессию по её id */
+      if (m.t === "resume" && m.id) {
+        if (session) { session.stop(); session = null; }
+        cfg.resume = String(m.id);
+        blast({ t: "cleared", resumed: cfg.resume });
+        blast({ t: "state", busy: false });
         return;
       }
 

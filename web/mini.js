@@ -515,6 +515,15 @@
   function showAccount(data) {
     usageData = data || usageData;
     if (!window.PCUSAGE || !usageData) return;
+    /* пока ничего не потрачено, показывать строку из прочерков незачем */
+    if (window.PC_LIVE) {
+      var u = usageData;
+      var any = (u.session && u.session.tokens) || (u.today && u.today.tokens) || u.allowance || u.plan;
+      if (!any) {
+        if (stripEl && stripEl.parentNode) { stripEl.remove(); stripEl = null; }
+        return;
+      }
+    }
     var fresh = PCUSAGE.renderAccountStrip(usageData, { el: el, ic: ic });
     fresh.classList.add("acct");
     fresh.addEventListener("click", openLimits);
@@ -540,11 +549,76 @@
   modelPill.addEventListener("click", openModels);
   modelMini.addEventListener("click", openModels);
 
-  histBtn.addEventListener("click", function () {
-    openSheet("Sessions", C.sessions.map(function (s) {
-      return { t: s.project + " · " + C.states[s.state].t, d: s.sum, brand: E.brandOfCrew(s.crew) };
-    }), function () { toast("Picked it back up"); });
-  });
+  /* ---------- сессии ---------- */
+  function ago(ms) {
+    if (!ms) return "";
+    var s = Math.max(0, (Date.now() - ms) / 1000);
+    if (s < 90) return "just now";
+    var m = Math.round(s / 60);
+    if (m < 60) return m + " min ago";
+    var h = Math.round(m / 60);
+    if (h < 24) return h + "h ago";
+    return Math.round(h / 24) + "d ago";
+  }
+
+  function clearFeed() {
+    feed.textContent = "";
+    stripEl = null;
+    st.started = false;
+    st.busy = false;
+    st.q = [];
+    drawQueue();
+    showIdle();
+    if (usageData) showAccount(usageData);
+    fillChips(C.session.freshChips);
+    ta.placeholder = C.session.freshPlaceholder;
+    setStrip(null);
+  }
+
+  function sessionRows(list) {
+    var rows = [{ t: "New session", d: "start from a blank page", sid: "__new" }];
+    list.forEach(function (x) {
+      rows.push({
+        t: x.title || "Untitled",
+        d: ago(x.at) + (x.current ? " · open now" : ""),
+        on: !!x.current,
+        sid: x.id
+      });
+    });
+    return rows;
+  }
+
+  function pickSession(r) {
+    if (r.sid === "__new") {
+      if (SEND && window.__pcws) window.__pcws.send(JSON.stringify({ t: "new" }));
+      clearFeed();
+      toast("New session");
+      return;
+    }
+    if (r.sid && SEND && window.__pcws) {
+      window.__pcws.send(JSON.stringify({ t: "resume", id: r.sid }));
+      clearFeed();
+      toast("Picked it back up");
+      return;
+    }
+    toast("Start the engine to open past sessions");
+  }
+
+  function openSessions() {
+    if (!window.PC_LIVE) {
+      openSheet("Sessions", sessionRows(C.sessions.map(function (x, i) {
+        return { id: null, title: x.sum, at: Date.now() - i * 36e5, current: false };
+      })), pickSession);
+      return;
+    }
+    fetch("/api/sessions").then(function (r) { return r.json(); }).then(function (j) {
+      openSheet("Sessions", sessionRows(j.sessions || []), pickSession);
+    })["catch"](function () {
+      openSheet("Sessions", sessionRows([]), pickSession);
+    });
+  }
+
+  histBtn.addEventListener("click", openSessions);
 
   function theme() { return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light"; }
   function setTheme(v) {
@@ -627,6 +701,7 @@
     },
     setSender: function (fn) { SEND = fn; },
     openModels: openModels, openPerms: openPerms, openLimits: openLimits,
+    openSessions: openSessions, clearFeed: clearFeed, newSession: function () { pickSession({ sid: "__new" }); },
     showAccount: showAccount, syncModel: function () { syncModel(); },
     usage: function () { return usageData; },
     pet: function () { return pet; },

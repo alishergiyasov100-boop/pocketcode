@@ -344,6 +344,8 @@
       });
 
       var c4 = group(b, "Session");
+      row(c4, { title: "New session", desc: "Start from a blank page", onTap: function () { close(); setTimeout(function () { U.newSession && U.newSession(); }, 240); } });
+      row(c4, { title: "Past sessions", onTap: function () { close(); setTimeout(function () { U.openSessions && U.openSessions(); }, 240); } });
       row(c4, { title: "Usage and limits", onTap: function () { close(); setTimeout(function () { U.openLimits && U.openLimits(); }, 240); } });
       row(c4, { title: "Project folder", value: (U.usage && U.usage() && U.usage().project) || null, flat: true });
 
