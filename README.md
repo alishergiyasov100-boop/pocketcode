@@ -30,6 +30,7 @@ Open **http://127.0.0.1:4848** and add it to your home screen — it runs standa
 | `pocketcode setup` | change project, gateway or model |
 | `pocketcode restart` | stop and start again |
 | `pocketcode boot` | start it automatically when the phone boots |
+| `pocketcode update` | pull the latest build and restart |
 | `pocketcode search <key>` | let it search the web (`off` to stop) |
 | `pocketcode doctor` | show what is missing |
 | `pocketcode widget` | home-screen shortcut via Termux:Widget |

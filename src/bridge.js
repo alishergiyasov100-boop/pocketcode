@@ -113,6 +113,8 @@ class Session extends EventEmitter {
     if (o.allowedTools && o.allowedTools.length) args.push("--allowedTools", o.allowedTools.join(","));
     if (o.disallowedTools && o.disallowedTools.length) args.push("--disallowedTools", o.disallowedTools.join(","));
     if (o.model) args.push("--model", o.model);
+    if (o.effort) args.push("--effort", o.effort);
+    if (o.systemPrompt) args.push("--append-system-prompt", o.systemPrompt);
 
     /* поиск приезжает своим MCP-сервером: встроенный WebSearch ходит
        через API Anthropic и мимо чужого шлюза не работает */

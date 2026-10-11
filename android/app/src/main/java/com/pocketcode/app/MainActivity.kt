@@ -10,9 +10,14 @@ import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.speech.RecognizerIntent
+import android.content.pm.PackageManager
+import androidx.core.app.ActivityCompat
+import android.Manifest
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -54,6 +59,7 @@ class MainActivity : AppCompatActivity() {
             isFocusableInTouchMode = true
             settings.setSupportZoom(false)
             webChromeClient = WebChromeClient()
+            addJavascriptInterface(Bridge(), "PocketNative")
             webViewClient = object : WebViewClient() {
                 override fun onReceivedError(v: WebView?, code: Int, d: String?, u: String?) {
                     showGate("Lost the engine. Is Termux still running?")
@@ -68,6 +74,58 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(root)
         poll()
+    }
+
+    /** то, что страница может попросить у телефона */
+    inner class Bridge {
+        @JavascriptInterface
+        fun hasVoice(): Boolean =
+            packageManager.queryIntentActivities(
+                Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH), 0
+            ).isNotEmpty()
+
+        @JavascriptInterface
+        fun startVoice() { main.post { listen() } }
+    }
+
+    private fun listen() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), 42)
+            return
+        }
+        val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Say what it should do")
+        }
+        try { startActivityForResult(i, 42) }
+        catch (e: Exception) { toWeb("", "no speech recogniser on this phone") }
+    }
+
+    override fun onRequestPermissionsResult(code: Int, perms: Array<out String>, res: IntArray) {
+        super.onRequestPermissionsResult(code, perms, res)
+        if (code == 42 && res.isNotEmpty() && res[0] == PackageManager.PERMISSION_GRANTED) listen()
+        else if (code == 42) toWeb("", "microphone is not allowed")
+    }
+
+    @Deprecated("startActivityForResult is what the recogniser speaks")
+    override fun onActivityResult(code: Int, result: Int, data: Intent?) {
+        super.onActivityResult(code, result, data)
+        if (code != 42) return
+        val text = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+        if (result == RESULT_OK && !text.isNullOrBlank()) toWeb(text, "")
+        else toWeb("", "")
+    }
+
+    /** отдать результат странице */
+    private fun toWeb(text: String, error: String) {
+        val t = text.replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ")
+        val e = error.replace("'", "\\'")
+        main.post {
+            web.evaluateJavascript(
+                "window.PCVOICE && window.PCVOICE('$t', '$e')", null
+            )
+        }
     }
 
     /** родной экран ожидания */

@@ -432,10 +432,49 @@
     window.visualViewport.addEventListener("resize", function () { setTimeout(scroll, 60); });
   }
   plusBtn.addEventListener("click", function () {
-    openSheet("Attach", C.attach.map(function (a) { return { t: a.t }; }),
-      function (r) { toast(r.t + " attached"); });
+    var rows = [
+      { t: "New session", d: "Start from a blank page", act: "new" },
+      { t: "Past sessions", d: "Pick up where you left off", act: "sessions" },
+      { t: "Project folder", d: "Switch what it works on", act: "project" },
+      { t: "Run a command", d: "Puts $ in the box, the shell answers", act: "shell" }
+    ];
+    openSheet("Do", rows, function (r) {
+      if (r.act === "new") { pickSession({ sid: "__new" }); return; }
+      if (r.act === "sessions") { openSessions(); return; }
+      if (r.act === "project") { openProjects(); return; }
+      if (r.act === "shell") {
+        ta.value = "$ ";
+        ta.focus();
+        try { ta.setSelectionRange(2, 2); } catch (e) {}
+        grow();
+      }
+    });
   });
-  micBtn.addEventListener("click", function () { toast("Voice input is not wired yet"); });
+  /* голос есть только внутри приложения: в браузере его неоткуда взять,
+     поэтому кнопка не висит мёртвой, а просто не появляется */
+  var VOICE = (function () {
+    try { return !!(window.PocketNative && window.PocketNative.hasVoice && window.PocketNative.hasVoice()); }
+    catch (e) { return false; }
+  })();
+
+  if (!VOICE) {
+    micBtn.style.display = "none";
+  } else {
+    micBtn.addEventListener("click", function () {
+      micBtn.setAttribute("data-on", "true");
+      try { window.PocketNative.startVoice(); }
+      catch (e) { micBtn.removeAttribute("data-on"); toast("Could not open the microphone", "bad"); }
+    });
+    window.PCVOICE = function (text, err) {
+      micBtn.removeAttribute("data-on");
+      if (err) { toast(err, "bad"); return; }
+      if (!text) return;
+      ta.value = ta.value ? ta.value.replace(/\s*$/, " ") + text : text;
+      grow();
+      ta.focus();
+      try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {}
+    };
+  }
 
   function fillChips(list) {
     chips.textContent = "";

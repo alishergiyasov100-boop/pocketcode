@@ -1,6 +1,6 @@
 {
   "name": "pocketcode",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "PocketCode V1 — the engine that links the app to Termux and runs a real coding agent on your phone.",
   "bin": {
     "pocketcode": "bin/pocketcode.js"

@@ -123,7 +123,9 @@
           check: l.id === state.effort,
           onTap: function () {
             state.effort = l.id;
-            U.toast("Effort: " + l.label);
+            savePrefs({ effort: l.id }, function (ok) {
+              U.toast(ok ? "Effort: " + l.label : "Saved here, the engine did not answer", ok ? "" : "bad");
+            });
             pop(); refresh();
           }
         });
@@ -139,9 +141,57 @@
           title: l.native || l.name,
           desc: (l.name !== (l.native || l.name) ? l.name : null) + (l.rtl ? " · right to left" : ""),
           check: l.code === state.lang,
-          onTap: function () { state.lang = l.code; U.toast(l.native || l.name); pop(); refresh(); }
+          onTap: function () {
+            state.lang = l.code;
+            savePrefs({ language: l.code }, function (ok) {
+              U.toast(ok ? (l.native || l.name) : "Saved here, the engine did not answer", ok ? "" : "bad");
+            });
+            pop(); refresh();
+          }
         });
       });
+    }, pop));
+  }
+
+  function notesPage() {
+    push(page("Custom instructions", function (b) {
+      b.appendChild(el("div", "pnl__note",
+        "Goes into every session as standing orders. Good for how you like code written, " +
+        "what to never touch, what the project is."));
+
+      var w = el("label", "pnl__f");
+      w.appendChild(el("span", "pnl__fl", "Notes"));
+      var ta = document.createElement("textarea");
+      ta.className = "pnl__fi pnl__ta";
+      ta.rows = 7;
+      ta.placeholder = "Keep comments in Russian. Never touch the migrations folder.";
+      ta.value = state.instructions || "";
+      ta.setAttribute("autocapitalize", "sentences");
+      ta.setAttribute("spellcheck", "false");
+      w.appendChild(ta);
+      b.appendChild(w);
+
+      var acts = el("div", "pnl__acts");
+      var save = el("button", "pnl__btn pnl__btn--go", "Save"); save.type = "button";
+      save.addEventListener("click", function () {
+        state.instructions = ta.value;
+        save.disabled = true; save.textContent = "Saving…";
+        savePrefs({ instructions: ta.value }, function (ok) {
+          U.toast(ok ? "It will read this from now on" : "The engine did not answer", ok ? "" : "bad");
+          pop(); refresh();
+        });
+      });
+      acts.appendChild(save);
+
+      if (state.instructions) {
+        var clr = el("button", "pnl__btn", "Clear"); clr.type = "button";
+        clr.addEventListener("click", function () {
+          state.instructions = "";
+          savePrefs({ instructions: "" }, function () { U.toast("Cleared"); pop(); refresh(); });
+        });
+        acts.appendChild(clr);
+      }
+      b.appendChild(acts);
     }, pop));
   }
 
@@ -161,6 +211,27 @@
         });
       });
     }, pop));
+  }
+
+  /* настройка имеет смысл только если доезжает до агента */
+  function savePrefs(patch, done) {
+    if (!window.PC_LIVE) { done && done(true); return; }
+    fetch("/api/prefs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch)
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      done && done(!!j.ok);
+    })["catch"](function () { done && done(false); });
+  }
+  function loadPrefs(cb) {
+    if (!window.PC_LIVE) return cb && cb();
+    fetch("/api/prefs").then(function (r) { return r.json(); }).then(function (j) {
+      if (j.effort) state.effort = j.effort;
+      if (j.language) state.lang = j.language;
+      state.instructions = j.instructions || "";
+      cb && cb();
+    })["catch"](function () { cb && cb(); });
   }
 
   /* ---------- поиск ---------- */
@@ -416,7 +487,12 @@
         value: (PC_CONTENT.perms.items.filter(function (p) { return p.on; })[0] || {}).t,
         onTap: function () { close(); setTimeout(function () { U.openPerms && U.openPerms(); }, 240); }
       });
-      row(c2, { title: "Custom instructions", desc: "Standing notes it reads every session", onTap: function () { U.toast("Not wired yet"); } });
+      row(c2, {
+        title: "Custom instructions",
+        desc: "Standing notes it reads every session",
+        value: state.instructions ? "set" : null,
+        onTap: notesPage
+      });
 
       var c3 = group(b, "App");
       row(c3, { title: "Language", value: langLabel(), onTap: languagePage });
@@ -449,7 +525,7 @@
 
   function open(x, y) {
     var draw = function () { reset(); push(root()); };
-    loadSearch(function () { if (PR) PR.load(draw); else draw(); });
+    loadSearch(function () { loadPrefs(function () { if (PR) PR.load(draw); else draw(); }); });
     scrim.setAttribute("data-on", "true");
     panel.setAttribute("data-on", "true");
     if (window.FX) {

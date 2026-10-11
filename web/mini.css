@@ -1180,3 +1180,13 @@ button {
 }
 .sheet__f:focus { background: var(--sunk2); }
 .sheet__f::-webkit-search-cancel-button { -webkit-appearance: none; }
+
+.pnl__ta {
+  min-height: 108px;
+  line-height: 1.45;
+  resize: none;
+  font-family: inherit;
+}
+
+.cbtn[data-on="true"] { color: var(--bad); animation: pc-mic 1.1s ease-in-out infinite; }
+@keyframes pc-mic { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }

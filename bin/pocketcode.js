@@ -251,7 +251,15 @@ async function status(quiet) {
   console.log("  project     " + C.b(st.project.split("/").pop()) + C.dim("  " + st.project));
   console.log("  engine      " + st.model + (cfg.baseUrl ? C.dim("  via your gateway") : C.dim("  via your claude login")));
   if (cfg.baseUrl) {
-    console.log("  gateway     " + (gw ? C.ok("answering") + C.dim(" in " + gw) : C.bad("no answer")) + C.dim("  " + cfg.baseUrl));
+    const where = runningFrom();
+  const mine = path.resolve(__dirname, "..");
+  if (where && path.resolve(where) !== mine) {
+    console.log("  version     " + C.b("v" + PKG.version) + C.dim("  but the daemon runs from " + where));
+    console.log("              " + C.bad("stale") + C.dim("  fix it with ") + C.b("pocketcode restart"));
+  } else {
+    console.log("  version     " + C.b("v" + PKG.version));
+  }
+  console.log("  gateway     " + (gw ? C.ok("answering") + C.dim(" in " + gw) : C.bad("no answer")) + C.dim("  " + cfg.baseUrl));
   }
   console.log("  agent       " + (st.busy ? C.warn("working right now") : "idle"));
   console.log("  app open    " + (st.clients ? C.ok(st.clients + " connected") : C.dim("nobody")));
@@ -319,6 +327,60 @@ async function setup() {
   return cfg;
 }
 
+/* ---------- обновление ---------- */
+const PKG = require("../package.json");
+const REPO = "github:alishergiyasov100-boop/pocketcode";
+
+/* npm бывает настроен на один префикс, а команда живёт в другом —
+   тогда установка уходит мимо и остаётся старая копия. Ставим туда,
+   откуда реально запускается pocketcode. */
+function installPrefix() {
+  try {
+    const bin = spawnSync("sh", ["-c", "command -v pocketcode"], { encoding: "utf8" }).stdout.trim();
+    if (!bin) return null;
+    const real = fs.realpathSync(bin);
+    const i = real.indexOf("/lib/node_modules/");
+    if (i > 0) return real.slice(0, i);
+    return path.resolve(path.dirname(bin), "..");
+  } catch (e) { return null; }
+}
+
+async function update() {
+  console.log("\n  installed  " + C.b("v" + PKG.version));
+  console.log("  pulling " + C.dim(REPO));
+  const prefix = installPrefix();
+  const args = prefix ? ["i", "-g", "--prefix", prefix, REPO] : ["i", "-g", REPO];
+  if (prefix) console.log("  into " + C.dim(prefix));
+  const r = spawnSync("npm", args, { stdio: "inherit" });
+  if (r.status !== 0) {
+    console.log("\n  " + C.bad("npm could not do it") + C.dim("  try it by hand:"));
+    console.log("  npm i -g " + REPO + "\n");
+    return;
+  }
+  /* проверяем, что обновилась именно та копия, которая запускается */
+  let now = PKG.version;
+  try {
+    const bin = spawnSync("sh", ["-c", "command -v pocketcode"], { encoding: "utf8" }).stdout.trim();
+    const root = path.resolve(path.dirname(fs.realpathSync(bin)), "..");
+    now = require(path.join(root, "package.json")).version;
+  } catch (e) {}
+  console.log("\n  " + C.ok("updated") + C.dim("   now v" + now + ", restarting"));
+  stop();
+  await new Promise((r2) => setTimeout(r2, 1200));
+  await start();
+}
+
+/* где лежит код, который сейчас крутится */
+function runningFrom() {
+  try {
+    const out = spawnSync("ps", ["-o", "args="], { encoding: "utf8" }).stdout || "";
+    const line = out.split("\n").find((l) => /pocketcode[\/\\]bin[\/\\]pocketcode\.js\s+(serve|supervise)/.test(l));
+    if (!line) return null;
+    const m = line.match(/(\S+pocketcode)[\/\\]bin[\/\\]pocketcode\.js/);
+    return m ? m[1] : null;
+  } catch (e) { return null; }
+}
+
 /* ---------- поиск ---------- */
 async function searchKey(key) {
   const cfg = config.load();
@@ -329,7 +391,7 @@ async function searchKey(key) {
     return;
   }
   cfg.searchKey = key === "off" || key === "none" ? "" : String(key).trim();
-  config.save(cfg);
+  config.patch({ searchKey: cfg.searchKey });
   console.log("\n  web search  " + (cfg.searchKey ? C.ok("on") : C.dim("off")));
 
   /* демон перечитает конфиг только на перезапуске сессии */
@@ -425,6 +487,7 @@ function widget() {
   if (cmd === "stop") { stop(); return; }
   if (cmd === "widget") { widget(); return; }
   if (cmd === "search") { await searchKey(process.argv[3]); return; }
+  if (cmd === "update" || cmd === "upgrade") { await update(); return; }
   if (cmd === "-h" || cmd === "--help") {
     console.log("\n" + C.b("pocketcode") + "          set up if needed, then run\n" +
       "  setup         change project, gateway, model\n" +

@@ -20,7 +20,10 @@ const DEFAULTS = {
   providers: [],
   activeProvider: null,
   searchKey: "",
-  searchEndpoint: ""
+  searchEndpoint: "",
+  effort: "",
+  replyLanguage: "",
+  instructions: ""
 };
 
 function load() {
@@ -32,6 +35,17 @@ function save(cfg) {
   fs.mkdirSync(DIR, { recursive: true });
   fs.writeFileSync(FILE, JSON.stringify(cfg, null, 2) + "\n", { mode: 0o600 });
   return FILE;
+}
+
+/* Точечная запись: читаем файл заново и меняем только названные поля.
+   Иначе демон, держащий конфиг в памяти, откатывает чужие правки —
+   поменял что-то в терминале, приложение сохранило своё, и терминальной
+   правки больше нет. */
+function patch(fields) {
+  const now = load();
+  Object.assign(now, fields || {});
+  save(now);
+  return now;
 }
 
 function exists() { return fs.existsSync(FILE); }
@@ -51,4 +65,4 @@ function envFor(cfg) {
   return env;
 }
 
-module.exports = { DIR, FILE, DEFAULTS, load, save, exists, envFor };
+module.exports = { DIR, FILE, DEFAULTS, load, save, patch, exists, envFor };

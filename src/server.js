@@ -186,6 +186,25 @@ function start(cfg) {
     }, null, 2));
     return file;
   }
+  /* настройки, которые должны доезжать до агента, а не лежать в интерфейсе */
+  const EFFORT = { instant: "low", quick: "medium", balanced: "high", deep: "xhigh", maximum: "max" };
+  const LANGS = {
+    en: "English", ru: "Russian", uk: "Ukrainian", de: "German", fr: "French",
+    es: "Spanish", pt: "Portuguese", it: "Italian", pl: "Polish", tr: "Turkish",
+    ar: "Arabic", fa: "Persian", hi: "Hindi", id: "Indonesian", ja: "Japanese",
+    ko: "Korean", zh: "Chinese", kk: "Kazakh", uz: "Uzbek", az: "Azerbaijani"
+  };
+  function systemFor(c) {
+    const bits = [];
+    const lang = LANGS[c.replyLanguage];
+    if (lang && c.replyLanguage !== "en") {
+      bits.push("Write every reply to the user in " + lang +
+                ". Keep code, file paths, commands and identifiers as they are.");
+    }
+    if (c.instructions && c.instructions.trim()) bits.push(c.instructions.trim());
+    return bits.join("\n\n");
+  }
+
   function toolsFor(c) {
     const base = c.allowedTools || [];
     return c.searchKey ? base.concat(SEARCH_TOOLS.filter((t) => base.indexOf(t) < 0)) : base;
@@ -193,11 +212,15 @@ function start(cfg) {
 
   function ensure() {
     if (session && !session.closed) return session;
+    /* правки из терминала должны доезжать без перезапуска демона */
+    Object.assign(cfg, config.load());
     session = new Session({
       cwd: cfg.project,
       permissionMode: cfg.permissionMode,
       allowedTools: toolsFor(cfg),
       mcpConfig: mcpFor(cfg),
+      effort: EFFORT[cfg.effort] || undefined,
+      systemPrompt: systemFor(cfg) || undefined,
       bare: cfg.bare,
       model: cfg.model || undefined,
       resume: cfg.resume || undefined,
@@ -213,7 +236,7 @@ function start(cfg) {
       blast({ t: "state", busy: false });
       blast({ t: "usage", u: usageSnapshot() });
     });
-    session.on("session", (id) => { cfg.resume = id; });
+    session.on("session", (id) => { cfg.resume = id; config.patch({ resume: id }); });
     session.on("stderr", (d) => process.stderr.write("[claude] " + d));
     session.on("error", (e) => blast({ t: "error", message: String(e && e.message || e) }));
     session.on("exit", (x) => {
@@ -258,6 +281,36 @@ function start(cfg) {
       return;
     }
 
+    if (url === "/api/prefs" && req.method === "GET") {
+      res.writeHead(200, { "content-type": TYPES[".json"] });
+      res.end(JSON.stringify({
+        effort: cfg.effort || "",
+        language: cfg.replyLanguage || "",
+        instructions: cfg.instructions || ""
+      }));
+      return;
+    }
+
+    if (url === "/api/prefs" && req.method === "POST") {
+      readBody(req).then((body) => {
+        const fields = {};
+        if (body.effort !== undefined) fields.effort = String(body.effort || "");
+        if (body.language !== undefined) fields.replyLanguage = String(body.language || "");
+        if (body.instructions !== undefined) fields.instructions = String(body.instructions || "");
+        Object.assign(cfg, config.patch(fields));
+        if (session && !session.closed) { session.stop(); session = null; }
+        res.writeHead(200, { "content-type": TYPES[".json"] });
+        res.end(JSON.stringify({
+          ok: true, effort: cfg.effort, language: cfg.replyLanguage,
+          instructions: cfg.instructions
+        }));
+      }).catch(() => {
+        res.writeHead(400, { "content-type": TYPES[".json"] });
+        res.end(JSON.stringify({ ok: false }));
+      });
+      return;
+    }
+
     if (url === "/api/search" && req.method === "GET") {
       res.writeHead(200, { "content-type": TYPES[".json"] });
       res.end(JSON.stringify({
@@ -270,9 +323,10 @@ function start(cfg) {
 
     if (url === "/api/search" && req.method === "POST") {
       readBody(req).then((body) => {
-        cfg.searchKey = String(body.key || "").trim();
-        cfg.searchEndpoint = String(body.endpoint || "").trim();
-        config.save(cfg);
+        Object.assign(cfg, config.patch({
+          searchKey: String(body.key || "").trim(),
+          searchEndpoint: String(body.endpoint || "").trim()
+        }));
         if (session && !session.closed) { session.stop(); session = null; }
         blast({ t: "hello", project: path.basename(cfg.project), cwd: cfg.project, model: cfg.model || "default", busy: false });
         res.writeHead(200, { "content-type": TYPES[".json"] });
@@ -297,7 +351,7 @@ function start(cfg) {
         /* выбранный провайдер становится боевым движком */
         const a = (cfg.providers || []).filter((p) => p.id === cfg.activeProvider)[0];
         if (a) { cfg.baseUrl = a.baseUrl || ""; cfg.token = a.token || ""; if (a.model) cfg.model = a.model; }
-        config.save(cfg);
+        Object.assign(cfg, config.patch({ providers: cfg.providers, activeProvider: cfg.activeProvider, baseUrl: cfg.baseUrl, token: cfg.token, model: cfg.model }));
         if (session && !session.closed) { session.stop(); session = null; }   /* подхватится на следующем ходу */
         res.writeHead(200, { "content-type": TYPES[".json"] });
         res.end(JSON.stringify({ ok: true, providers: cfg.providers, active: cfg.activeProvider }));
@@ -390,9 +444,10 @@ function start(cfg) {
       /* сменить папку, в которой работает агент */
       /* сменить модель на лету */
       if (m.t === "model" && m.model) {
-        cfg.model = String(m.model);
-        if (!cfg.smallModel) cfg.smallModel = cfg.model;
-        config.save(cfg);
+        Object.assign(cfg, config.patch({
+          model: String(m.model),
+          smallModel: cfg.smallModel || String(m.model)
+        }));
         if (session && !session.closed) { session.stop(); session = null; }
         blast({ t: "hello", project: path.basename(cfg.project), cwd: cfg.project, model: cfg.model, busy: false });
         blast({ t: "usage", u: usageSnapshot() });
@@ -401,9 +456,7 @@ function start(cfg) {
 
       if (m.t === "project" && m.path) {
         if (session) { session.stop(); session = null; }
-        cfg.project = String(m.path);
-        cfg.resume = null;
-        config.save(cfg);
+        Object.assign(cfg, config.patch({ project: String(m.path), resume: null }));
         blast({ t: "cleared", project: path.basename(cfg.project) });
         blast({ t: "hello", project: path.basename(cfg.project), cwd: cfg.project, model: cfg.model || "default", busy: false });
         blast({ t: "state", busy: false });
