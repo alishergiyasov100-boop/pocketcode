@@ -143,6 +143,25 @@ Five things the terminal gives you that a phone needs more, not less:
   your working tree. "Undo last turn" in the + menu puts the files back,
   including work you had not committed. Files it newly created stay.
 
+## Why it needs a Linux container
+
+Claude Code ships native binaries for glibc and musl, and none for
+Android. Termux is bionic, so the agent cannot run there at all — the
+`claude` you install with npm inside Termux is a 500-byte stub that
+prints "native binary not installed". Running its postinstall by hand
+does not help; it answers plainly: *native binaries for
+linux-arm64-android are not available*.
+
+So the agent lives in a proot container, which is a one-time setup:
+
+    pkg install proot-distro
+    proot-distro install alpine
+    proot-distro login alpine -- sh -c 'apk add nodejs npm && npm i -g @anthropic-ai/claude-code'
+
+After that `pocketcode` started from Termux notices it cannot run the
+agent where it stands and moves the daemon into the container by itself.
+Same folders, same port, nothing to remember.
+
 ## Memory
 
 The agent runs with `--bare`, which is what keeps it fast and lets it

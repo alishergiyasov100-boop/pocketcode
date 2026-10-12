@@ -138,9 +138,42 @@ function supervise() {
 }
 
 /* отцепить надзирателя от текущего терминала и выйти */
+/* ---------- где вообще может работать агент ----------
+   У Claude Code нет сборки под Android: есть glibc и musl для arm64,
+   а Termux — bionic. В самом Termux он не запустится никогда. Зато он
+   прекрасно работает в дистрибутиве под proot, который у многих уже
+   стоит. Если мы в Termux и агента тут нет — уходим туда вместе с
+   демоном: внутри дистрибутива видны те же папки и тот же порт. */
+function distroHop() {
+  const cb = require("../src/claude");
+  if (cb.resolve(config.load())) return null;          /* агент здесь есть */
+  const pd = "/data/data/com.termux/files/usr/bin/proot-distro";
+  if (!fs.existsSync(pd)) return null;
+  let names = [];
+  try { names = fs.readdirSync("/data/data/com.termux/files/usr/var/lib/proot-distro/installed-rootfs"); }
+  catch (e) { return null; }
+  /* Достаточно найти node: агента внутри поищет уже сам демон,
+     и если его там нет — скажет об этом человеческими словами. */
+  for (const name of names) {
+    const root = "/data/data/com.termux/files/usr/var/lib/proot-distro/installed-rootfs/" + name;
+    const node = ["/usr/bin/node", "/usr/local/bin/node", "/usr/bin/nodejs"]
+      .find((n) => fs.existsSync(path.join(root, n.slice(1))));
+    if (node) return { pd, name, node };
+  }
+  return null;
+}
+
 function up() {
   const out = fs.openSync(path.join(config.DIR, "daemon.log"), "a");
-  const ch = spawn(process.execPath, [__filename, "supervise"], {
+  const hop = distroHop();
+  let cmd = process.execPath, args = [__filename, "supervise"];
+  if (hop) {
+    console.log(C.dim("  the agent cannot run in Termux itself, going through " + hop.name));
+    cmd = hop.pd;
+    args = ["login", hop.name, "--shared-tmp", "--",
+            "env", "HOME=" + os.homedir(), hop.node, __filename, "supervise"];
+  }
+  const ch = spawn(cmd, args, {
     detached: true,
     stdio: ["ignore", out, out],
     env: process.env
@@ -252,8 +285,9 @@ async function status(quiet) {
   console.log("  engine      " + st.model + (cfg.baseUrl ? C.dim("  via your gateway") : C.dim("  via your claude login")));
   if (cfg.baseUrl) {
     const where = runningFrom();
-  const mine = path.resolve(__dirname, "..");
-  if (where && path.resolve(where) !== mine) {
+  const real = (x) => { try { return fs.realpathSync(x); } catch (e) { return path.resolve(x); } };
+  const mine = real(path.resolve(__dirname, ".."));
+  if (where && real(where) !== mine) {
     console.log("  version     " + C.b("v" + PKG.version) + C.dim("  but the daemon runs from " + where));
     console.log("              " + C.bad("stale") + C.dim("  fix it with ") + C.b("pocketcode restart"));
   } else {

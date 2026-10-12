@@ -64,10 +64,24 @@ function resolve(cfg) {
 /** человеческое объяснение, когда ни один не завёлся */
 function why(cfg) {
   const all = candidates(cfg);
+  const inTermux = /com\.termux/.test(process.env.PREFIX || "") ||
+                   fs.existsSync("/data/data/com.termux/files/usr/bin/pkg");
+  const bionic = inTermux && !fs.existsSync("/etc/os-release");
+
+  if (!all.length && bionic) {
+    return "Claude Code has no build for Android, so it cannot run in Termux itself. " +
+           "Install a Linux container once and PocketCode will use it automatically: " +
+           "pkg install proot-distro && proot-distro install alpine && " +
+           "proot-distro login alpine -- sh -c 'apk add nodejs npm && npm i -g @anthropic-ai/claude-code'";
+  }
   if (!all.length) return "Claude Code is not installed: npm i -g @anthropic-ai/claude-code";
-  return "Found claude at " + all[0] + " but it does not run. " +
-         "Its native binary is missing — reinstall without --ignore-scripts, " +
-         "or run: node $(dirname $(readlink -f $(command -v claude)))/../install.cjs";
+  if (bionic) {
+    return "The claude at " + all[0] + " is a stub: there is no Android build of the agent, " +
+           "only glibc and musl ones. Run PocketCode from inside your Linux container, " +
+           "or install one: proot-distro install alpine.";
+  }
+  return "Found claude at " + all[0] + " but it does not run. Its native binary never downloaded — " +
+         "reinstall it without --ignore-scripts.";
 }
 
 module.exports = { resolve, works, candidates, why };
