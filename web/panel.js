@@ -278,6 +278,35 @@
     }, pop));
   }
 
+  function protectPage() {
+    push(page("Never touch these", function (b) {
+      b.appendChild(el("div", "pnl__note",
+        "One path per line. Anything matching is off limits to the agent — " +
+        "it cannot edit or overwrite it. Wildcards like src/secret/** work."));
+      var w = el("label", "pnl__f");
+      w.appendChild(el("span", "pnl__fl", "Paths"));
+      var ta = document.createElement("textarea");
+      ta.className = "pnl__fi pnl__ta"; ta.rows = 6;
+      ta.placeholder = ".env\nsecrets/**\ndb/migrations/**";
+      ta.value = state.protect || "";
+      ta.setAttribute("spellcheck", "false");
+      ta.setAttribute("autocapitalize", "off");
+      w.appendChild(ta);
+      b.appendChild(w);
+      var acts = el("div", "pnl__acts");
+      var save = el("button", "pnl__btn pnl__btn--go", "Save"); save.type = "button";
+      save.addEventListener("click", function () {
+        state.protect = ta.value;
+        savePrefs({ protect: ta.value }, function (ok) {
+          U.toast(ok ? "Off limits saved" : "The engine did not answer", ok ? "" : "bad");
+          pop(); refresh();
+        });
+      });
+      acts.appendChild(save);
+      b.appendChild(acts);
+    }, pop));
+  }
+
   function notesPage() {
     push(page("Custom instructions", function (b) {
       b.appendChild(el("div", "pnl__note",
@@ -355,6 +384,10 @@
       if (j.effort) state.effort = j.effort;
       if (j.bashTimeoutMs) state.bashTimeoutMs = j.bashTimeoutMs;
       if (j.notify !== undefined) state.notify = j.notify;
+      state.askFirst = !!j.askFirst;
+      state.planFirst = !!j.planFirst;
+      state.autoCommit = !!j.autoCommit;
+      state.protect = j.protect || "";
       if (j.language) state.lang = j.language;
       state.instructions = j.instructions || "";
       cb && cb();
@@ -606,6 +639,40 @@
         value: searchState.on ? "on" : "off",
         desc: "Lets it look things up and read pages",
         onTap: searchPage
+      });
+
+      var cs = group(b, "Safety net");
+      row(cs, {
+        title: "Ask before editing",
+        desc: "It shows what it wants to change and waits",
+        toggle: true,
+        value: !!state.askFirst,
+        onToggle: function (v) { state.askFirst = v; savePrefs({ askFirst: v }); }
+      });
+      row(cs, {
+        title: "Plan before doing",
+        desc: "First a plan on screen, work only after your yes",
+        toggle: true,
+        value: !!state.planFirst,
+        onToggle: function (v) { state.planFirst = v; savePrefs({ planFirst: v }); }
+      });
+      row(cs, {
+        title: "Save every turn to git",
+        desc: "History writes itself, nothing to remember",
+        toggle: true,
+        value: !!state.autoCommit,
+        onToggle: function (v) { state.autoCommit = v; savePrefs({ autoCommit: v }); }
+      });
+      row(cs, {
+        title: "Never touch these",
+        desc: "One path per line, wildcards fine",
+        value: state.protect ? String(state.protect).split("\n").filter(Boolean).length + " paths" : "none",
+        onTap: protectPage
+      });
+      row(cs, {
+        title: "Go back in time",
+        desc: "Every point before a turn",
+        onTap: function () { close(); setTimeout(function () { U.openCheckpoints && U.openCheckpoints(); }, 240); }
       });
 
       var c2 = group(b, "Behaviour");

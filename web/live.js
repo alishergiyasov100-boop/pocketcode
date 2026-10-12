@@ -49,6 +49,18 @@
     };
   }
 
+  /* ошибка без выхода — предложить повтор прямо в ленте */
+  function offerRetry(message) {
+    var n = U.addNote ? U.addNote(message) : null;
+    if (!n || !U.button) { U.toast(message, "bad"); return; }
+    var b = U.button("Try again", true, function () {
+      ws && ws.send(JSON.stringify({ t: "retry" }));
+      b.disabled = true; b.textContent = "Trying\u2026";
+    });
+    b.classList.add("note__go");
+    n.appendChild(b);
+  }
+
   function handle(p) {
     if (p.t === "hello") {
       ready = true;
@@ -59,19 +71,22 @@
       return;
     }
     if (p.t === "usage") { U.showAccount && U.showAccount(p.u); return; }
-    if (p.t === "cleared") { tools = {}; strip(p.resumed ? "Picked up where it left off" : "Ready", "", "pc-dot-fade"); U.petEvent && U.petEvent("app_opened"); return; }
+    if (p.t === "cleared") { tools = {}; if (U.state) U.state.project = null; strip(p.resumed ? "Picked up where it left off" : "Ready", "", "pc-dot-fade"); U.petEvent && U.petEvent("app_opened"); return; }
     if (p.t === "state") {
       U.setBusy(p.busy);
       if (p.busy) { U.startClock(); strip("WORKING", "", "pc-ring-px"); }
       return;
     }
-    if (p.t === "error") { U.toast(p.message || "Something broke", "bad"); U.setBusy(false); return; }
+    if (p.t === "error") { offerRetry(p.message || "Something broke"); U.setBusy(false); return; }
+    if (p.t === "sessions_changed") return;
+    if (p.t === "checkpoints") { U.setCheckpoints && U.setCheckpoints(p.list); return; }
     if (p.t !== "ui") return;
 
     var e = p.e;
     if (e.type === "user") { U.addYou(e.text); return; }
     if (e.type === "todos") { U.showTodos && U.showTodos(e.items); return; }
     if (e.type === "note") { U.addNote && U.addNote(e.text); return; }
+    if (e.type === "warn") { U.addWarn && U.addWarn(e.text, e.cmd); return; }
     if (e.type === "agent") { U.addSay(esc(e.text)); U.petEvent && U.petEvent("agent_thinking"); return; }
     if (e.type === "think") { U.addStep(short(e.text, 140), true); return; }
 

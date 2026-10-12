@@ -23,6 +23,13 @@
     check:  "M4 12.5 9.5 18 20 6.5",
     cross:  "M6 6l12 12M18 6 6 18",
     clock:  "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2",
+    paste:  "M9 4h6v3H9zM7 6H5v14h14V6h-2M9 12h6M9 16h4",
+    search: "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3",
+    undo:   "M9 10H5V6M5.6 15a8 8 0 1 0 1.3-7.4L5 10",
+    play:   "M7 5l12 7-12 7z",
+    pin:    "M12 3v7M8 10h8l-1 4H9zM12 14v7",
+    fold:   "M6 9l6 6 6-6",
+    pen:    "M16 3l5 5L8 21H3v-5zM13 6l5 5",
     dot:    "M12 12h.01",
     sun:    "M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19",
     moon:   "M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"
@@ -67,6 +74,29 @@
   bar.appendChild(modelPill);
 
   bar.appendChild(el("div", "bar__sp"));
+
+  var quietBtn = el("button", "ibtn"); quietBtn.type = "button";
+  quietBtn.setAttribute("aria-label", "Simple view");
+  quietBtn.appendChild(ic("fold", 19, 2));
+  var quiet = false;
+  try { quiet = localStorage.getItem("pc-quiet") === "1"; } catch (e) {}
+  function applyQuiet() {
+    app.setAttribute("data-quiet", String(quiet));
+    quietBtn.setAttribute("data-on", String(quiet));
+    try { localStorage.setItem("pc-quiet", quiet ? "1" : "0"); } catch (e) {}
+  }
+  quietBtn.addEventListener("click", function () {
+    quiet = !quiet; applyQuiet();
+    toast(quiet ? "Just the conversation" : "Every step shown");
+    scroll();
+  });
+  bar.appendChild(quietBtn);
+
+  var searchBtn = el("button", "ibtn"); searchBtn.type = "button";
+  searchBtn.setAttribute("aria-label", "Find");
+  searchBtn.appendChild(ic("search", 18, 2));
+  bar.appendChild(searchBtn);
+
   var histBtn = el("button", "ibtn"); histBtn.type = "button";
   histBtn.setAttribute("aria-label", "Sessions");
   histBtn.appendChild(ic("clock", 20));
@@ -75,6 +105,17 @@
 
   var strip = el("div", "strip"); strip.setAttribute("data-on", "false");
   app.appendChild(strip);
+
+  var find = el("div", "find"); find.setAttribute("data-on", "false");
+  var findIn = document.createElement("input");
+  findIn.className = "find__i"; findIn.type = "search";
+  findIn.placeholder = "Find in this conversation";
+  findIn.setAttribute("autocomplete", "off");
+  var findN = el("span", "find__n", "");
+  var findX = el("button", "find__x"); findX.type = "button";
+  findX.appendChild(ic("cross", 15, 2.2));
+  find.appendChild(findIn); find.appendChild(findN); find.appendChild(findX);
+  app.appendChild(find);
 
   var stage = el("div", "stage");
   var feed = el("div", "feed");
@@ -103,6 +144,20 @@
   plusBtn.appendChild(ic("plus", 18, 2));
   ibar.appendChild(plusBtn);
 
+  var pasteBtn = el("button", "cbtn"); pasteBtn.type = "button";
+  pasteBtn.setAttribute("aria-label", "Paste");
+  pasteBtn.appendChild(ic("paste", 17, 1.9));
+  pasteBtn.addEventListener("click", function () {
+    if (!navigator.clipboard || !navigator.clipboard.readText) { toast("Clipboard is not available here", "bad"); return; }
+    navigator.clipboard.readText().then(function (t) {
+      if (!t) { toast("Clipboard is empty"); return; }
+      ta.value = ta.value ? ta.value.replace(/\s*$/, " ") + t : t;
+      grow(); ta.focus();
+      try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {}
+    })["catch"](function () { toast("Android did not let me read the clipboard", "bad"); });
+  });
+  ibar.appendChild(pasteBtn);
+
   var modelMini = el("button", "modelmini"); modelMini.type = "button";
   var mmName = el("span", "", "");
   modelMini.appendChild(mmName);
@@ -123,6 +178,30 @@
   input.appendChild(ibar);
   foot.appendChild(input);
   app.appendChild(foot);
+
+  function runFind() {
+    var q = findIn.value.trim().toLowerCase();
+    var hit = 0, first = null;
+    Array.prototype.forEach.call(feed.children, function (n) {
+      if (!q) { n.removeAttribute("data-find"); return; }
+      var on = (n.textContent || "").toLowerCase().indexOf(q) >= 0;
+      n.setAttribute("data-find", on ? "hit" : "miss");
+      if (on) { hit++; if (!first) first = n; }
+    });
+    findN.textContent = q ? (hit ? hit + " found" : "nothing") : "";
+    if (first) first.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+  findIn.addEventListener("input", runFind);
+  searchBtn.addEventListener("click", function () {
+    var on = find.getAttribute("data-on") !== "true";
+    find.setAttribute("data-on", String(on));
+    if (on) findIn.focus();
+    else { findIn.value = ""; runFind(); }
+  });
+  findX.addEventListener("click", function () {
+    find.setAttribute("data-on", "false");
+    findIn.value = ""; runFind();
+  });
 
   var scrim = el("div", "scrim"); scrim.setAttribute("data-on", "false");
   app.appendChild(scrim);
@@ -479,6 +558,15 @@
     if (st.busy && window.PC_LIVE) { stopAgent(); return; }
     submit();
   });
+  /* черновик не теряется, если свернул приложение на полуслове */
+  try {
+    var saved = localStorage.getItem("pc-draft");
+    if (saved) { ta.value = saved; setTimeout(grow, 0); }
+  } catch (e) {}
+  ta.addEventListener("input", function () {
+    try { localStorage.setItem("pc-draft", ta.value); } catch (e) {}
+  });
+
   ta.addEventListener("focus", function () { setTimeout(scroll, 300); });
   if (window.visualViewport) {
     window.visualViewport.addEventListener("resize", function () { setTimeout(scroll, 60); });
@@ -538,7 +626,18 @@
     chips.textContent = "";
     list.forEach(function (c) {
       var b = el("button", "chip", c); b.type = "button";
-      b.addEventListener("click", function () { send(c); });
+      var held = false, timer = null;
+      var hold = function () {
+        held = true;
+        ta.value = c; grow(); ta.focus();
+        try { ta.setSelectionRange(c.length, c.length); } catch (e) {}
+        toast("Edit it, then send");
+      };
+      b.addEventListener("touchstart", function () { held = false; timer = setTimeout(hold, 480); }, { passive: true });
+      b.addEventListener("touchend", function () { clearTimeout(timer); });
+      b.addEventListener("touchmove", function () { clearTimeout(timer); });
+      b.addEventListener("contextmenu", function (e) { e.preventDefault(); hold(); });
+      b.addEventListener("click", function () { if (!held) send(c); held = false; });
       chips.appendChild(b);
     });
   }
@@ -588,7 +687,17 @@
       var g2 = el("span", "row__g");
       g2.appendChild(r.on ? ic("check", 17, 2.2, "var(--ok)") : ic("right", 16, 2));
       b.appendChild(g2);
-      b.addEventListener("click", function () { closeSheet(); onPick && onPick(r); });
+      if (r.hold) {
+        var held = false, tm = null;
+        var fire = function () { held = true; closeSheet(); setTimeout(r.hold, 200); };
+        b.addEventListener("touchstart", function () { held = false; tm = setTimeout(fire, 500); }, { passive: true });
+        b.addEventListener("touchend", function () { clearTimeout(tm); });
+        b.addEventListener("touchmove", function () { clearTimeout(tm); });
+        b.addEventListener("contextmenu", function (e) { e.preventDefault(); fire(); });
+        b.addEventListener("click", function () { if (held) { held = false; return; } closeSheet(); onPick && onPick(r); });
+      } else {
+        b.addEventListener("click", function () { closeSheet(); onPick && onPick(r); });
+      }
       b._key = ((r.t || "") + " " + (r.d || "")).toLowerCase();
       body.appendChild(b);
     });
@@ -734,10 +843,12 @@
     }
     list.forEach(function (x) {
       rows.push({
-        t: x.title || "Untitled",
-        d: ago(x.at) + (x.current ? " · open now" : ""),
+        t: (x.pinned ? "· " : "") + (x.title || "Untitled"),
+        d: ago(x.at) + (x.current ? " · open now" : "") + (x.pinned ? " · kept on top" : ""),
         on: !!x.current,
-        sid: x.id
+        sid: x.id,
+        pinned: !!x.pinned,
+        hold: function () { sessionMenu(x); }
       });
     });
     return rows;
@@ -774,6 +885,85 @@
         toast("Working in " + r.t);
       });
     })["catch"](function () { toast("Could not read the folders"); });
+  }
+
+  /* долгое нажатие по сессии: назвать по-своему или закрепить */
+  function sessionMenu(x) {
+    openSheet(x.title || "Session", [
+      { t: "Rename", d: "Give it a name you will recognise", act: "rename" },
+      { t: x.pinned ? "Unpin" : "Keep on top", d: x.pinned ? "Back in date order" : "Always first in the list", act: "pin" }
+    ], function (r) {
+      if (!window.__pcws) { toast("Start the engine first", "bad"); return; }
+      if (r.act === "pin") {
+        window.__pcws.send(JSON.stringify({ t: "session_meta", id: x.id, pinned: !x.pinned }));
+        toast(x.pinned ? "Unpinned" : "Kept on top");
+        return;
+      }
+      askName(x.title || "", function (name) {
+        if (name == null) return;
+        window.__pcws.send(JSON.stringify({ t: "session_meta", id: x.id, title: name }));
+        toast(name ? "Called it " + name : "Name cleared");
+      });
+    });
+  }
+
+  /* маленький диалог ввода — prompt() в WebView выглядит чужеродно */
+  function askName(value, cb) {
+    var wrap = el("div", "ask");
+    var card = el("div", "ask__c");
+    card.appendChild(el("div", "ask__t", "Name this session"));
+    var i = document.createElement("input");
+    i.className = "ask__i"; i.value = value; i.placeholder = "Rocket site";
+    i.setAttribute("autocomplete", "off");
+    card.appendChild(i);
+    var row = el("div", "ask__r");
+    row.appendChild(button("Cancel", false, function () { wrap.remove(); cb(null); }));
+    row.appendChild(button("Save", true, function () { var v = i.value.trim(); wrap.remove(); cb(v); }));
+    card.appendChild(row);
+    wrap.appendChild(card);
+    wrap.addEventListener("click", function (e) { if (e.target === wrap) { wrap.remove(); cb(null); } });
+    app.appendChild(wrap);
+    setTimeout(function () { i.focus(); }, 60);
+  }
+
+  var checkpoints = [];
+  function setCheckpoints(list) { checkpoints = list || []; }
+
+  function openCheckpoints() {
+    if (!window.PC_LIVE || !window.__pcws) { toast("Start the engine first", "bad"); return; }
+    window.__pcws.send(JSON.stringify({ t: "checkpoints" }));
+    setTimeout(function () {
+      if (!checkpoints.length) {
+        openSheet("Go back in time", [{ t: "Nothing recorded yet", d: "A point is saved before every message", noop: true }], function () {});
+        return;
+      }
+      var rows = checkpoints.slice().reverse().map(function (c, n) {
+        var d = new Date(c.at);
+        return {
+          t: n === 0 ? "Just before the last message" : c.label,
+          d: d.toLocaleTimeString() + (n === checkpoints.length - 1 ? " · start of this session" : ""),
+          idx: c.i
+        };
+      });
+      openSheet("Go back in time", rows, function (r) {
+        if (r.noop) return;
+        window.__pcws.send(JSON.stringify({ t: "restore", i: r.idx }));
+        toast("Putting the files back");
+      });
+    }, 260);
+  }
+
+  /* предупреждение об опасной команде — отдельной заметной строкой */
+  function addWarn(text, cmd) {
+    var n = el("div", "warn");
+    n.appendChild(ic("cross", 14, 2.4, "var(--warn)"));
+    var x = el("span", "warn__x");
+    x.appendChild(el("span", "warn__t", text));
+    if (cmd) x.appendChild(el("code", "warn__c", cmd));
+    n.appendChild(x);
+    feed.appendChild(n);
+    scroll();
+    return n;
   }
 
   function openSessions() {
@@ -848,6 +1038,7 @@
   showIdle();
   setStrip(null);
 
+  applyQuiet();
   pet = new E.Pet(app, 3);
   setTimeout(function () { petEvent("app_opened"); }, 400);
 
@@ -859,6 +1050,7 @@
     addCard: addCard, planCard: planCard, askCard: askCard, button: button,
     setStrip: setStrip, setBusy: setBusy, toast: toast, scroll: scroll,
     showTodos: showTodos, stopAgent: stopAgent,
+    openCheckpoints: openCheckpoints, setCheckpoints: setCheckpoints, addWarn: addWarn,
     clearIdle: clearIdle, fillChips: fillChips, petAct: petAct, petEvent: petEvent,
     petTyping: function (on) { if (pet && pet.typing) pet.typing(on); },
     el: el, ind: ind, ic: ic, feed: feed, input: ta,

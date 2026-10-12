@@ -87,6 +87,7 @@ function start(cfg) {
      Новичок боится, что агент сломает файлы. git stash create делает
      коммит-снимок, не трогая ни рабочую папку, ни историю. */
   let snapshot = null;
+  const checkpoints = [];               /* { sha, head, at, label } — до 30 */
   function git(args, cb) {
     const p = spawn("git", args, { cwd: cfg.project, env: process.env });
     let out = "", err = "";
@@ -95,17 +96,55 @@ function start(cfg) {
     p.on("close", (code) => cb(code, out.trim(), err.trim()));
     p.on("error", () => cb(1, "", "no git"));
   }
-  function takeSnapshot() {
+  function takeSnapshot(label) {
     git(["rev-parse", "--is-inside-work-tree"], (code) => {
       if (code !== 0) { snapshot = null; return; }
       git(["add", "-A", "--intent-to-add"], () => {
         git(["stash", "create"], (c2, sha) => {
           git(["rev-parse", "HEAD"], (c3, head) => {
-            snapshot = { sha: sha || null, head: c3 === 0 ? head : null, at: Date.now() };
+            snapshot = { sha: sha || null, head: c3 === 0 ? head : null, at: Date.now(), label: label || "before a turn" };
+            checkpoints.push(snapshot);
+            if (checkpoints.length > 30) checkpoints.shift();
+            blast({ t: "checkpoints", list: checkpoints.map((c, i) => ({ i, at: c.at, label: c.label })) });
           });
         });
       });
     });
+  }
+
+  function restoreTo(i, cb) {
+    const c = checkpoints[i];
+    if (!c) return cb("that point is gone");
+    const target = c.sha || c.head;
+    if (!target) return cb("nothing was recorded there");
+    git(["checkout", target, "--", "."], (code, _o, err) => cb(code === 0 ? null : (err || "git refused")));
+  }
+
+  /* автокоммит: история появляется сама, новичку не надо знать про git */
+  function autoCommit(text) {
+    if (!cfg.autoCommit) return;
+    git(["rev-parse", "--is-inside-work-tree"], (code) => {
+      if (code !== 0) return;
+      git(["add", "-A"], () => {
+        const msg = (text || "work from PocketCode").replace(/\s+/g, " ").slice(0, 72);
+        git(["-c", "user.email=pocketcode@local", "-c", "user.name=PocketCode", "commit", "-m", msg], () => {});
+      });
+    });
+  }
+
+  /* опасное стоит назвать вслух, даже если мы это не запрещаем */
+  const DANGER = [
+    [/\brm\s+-[a-z]*r[a-z]*f?\b|\brm\s+-[a-z]*f[a-z]*r?\b/, "deletes whole folders"],
+    [/\bgit\s+push\b.*(--force|-f)\b/, "force-pushes over the remote"],
+    [/\bgit\s+reset\s+--hard\b/, "throws away uncommitted work"],
+    [/\bgit\s+clean\s+-[a-z]*f/, "deletes untracked files"],
+    [/\bmkfs|\bdd\s+if=|>\s*\/dev\/[sh]d/, "writes to a raw device"],
+    [/\bchmod\s+-R\s+777\b/, "opens everything to everyone"],
+    [/\bcurl\b[^|]*\|\s*(ba)?sh\b/, "runs a script straight off the internet"]
+  ];
+  function dangerOf(cmd) {
+    for (const [re, why] of DANGER) if (re.test(cmd)) return why;
+    return null;
   }
   function undoTurn(cb) {
     if (!snapshot) {
@@ -138,6 +177,7 @@ function start(cfg) {
   }
 
   let sessionSince = Date.now();
+  let lastSent = null;
   function capLabel(L) {
     const bits = [];
     if (L.cap.turns) bits.push(L.cap.turns + " turns");
@@ -293,15 +333,19 @@ function start(cfg) {
       const full = path.join(dir, f);
       let st = null;
       try { st = fs.statSync(full); } catch (e) {}
+      const id = f.replace(/\.jsonl$/, "");
+      const meta = (cfg.sessionMeta || {})[id] || {};
       return {
-        id: f.replace(/\.jsonl$/, ""),
-        title: titleOf(full),
+        id,
+        title: meta.title || titleOf(full),
+        renamed: !!meta.title,
+        pinned: !!meta.pinned,
         at: st ? st.mtimeMs : 0,
         size: st ? st.size : 0,
-        current: f.replace(/\.jsonl$/, "") === live
+        current: id === live
       };
     }).filter((x) => x.size > 200)          /* пустые черновики не показываем */
-      .sort((a, b) => b.at - a.at)
+      .sort((a, b) => (b.pinned - a.pinned) || (b.at - a.at))
       .slice(0, 40);
   }
 
@@ -393,7 +437,8 @@ function start(cfg) {
     }
     session = new Session({
       cwd: cfg.project,
-      permissionMode: cfg.permissionMode,
+      permissionMode: cfg.planFirst ? "plan" : (cfg.askFirst ? "default" : cfg.permissionMode),
+      disallowedTools: (cfg.protect || []).flatMap((p) => ["Edit(" + p + ")", "Write(" + p + ")"]),
       allowedTools: toolsFor(cfg),
       mcpConfig: mcpFor(cfg),
       bin: bin,
@@ -405,7 +450,13 @@ function start(cfg) {
       env: config.envFor(cfg)
     }).start();
 
-    session.on("ui", (e) => blast({ t: "ui", e }));
+    session.on("ui", (e) => {
+      if (e.type === "tool" && e.name === "Bash" && e.input && e.input.command) {
+        const why = dangerOf(String(e.input.command));
+        if (why) blast({ t: "ui", e: { type: "warn", text: "Careful: that command " + why + ".", cmd: String(e.input.command).slice(0, 160) } });
+      }
+      blast({ t: "ui", e });
+    });
     session.on("idle", () => {
       /* счётчик ключа — единственный правдивый источник: берём дельту.
          Шлюз дописывает свой учёт чуть позже ответа, поэтому не спешим. */
@@ -430,6 +481,7 @@ function start(cfg) {
 
       const last = session.lastText || "";
       nudge(last ? last.replace(/\s+/g, " ").slice(0, 140) : "Done.");
+      autoCommit(lastSent || last);
 
       const u = session.usage();
       day.cost = u.cost;                 /* шлюз отдаёт накопленную стоимость сессии */
@@ -524,7 +576,11 @@ function start(cfg) {
         language: cfg.replyLanguage || "",
         instructions: cfg.instructions || "",
         bashTimeoutMs: cfg.bashTimeoutMs || 600000,
-        notify: cfg.notify !== false
+        notify: cfg.notify !== false,
+        askFirst: !!cfg.askFirst,
+        planFirst: !!cfg.planFirst,
+        autoCommit: !!cfg.autoCommit,
+        protect: (cfg.protect || []).join("\n")
       }));
       return;
     }
@@ -539,6 +595,13 @@ function start(cfg) {
         }
         if (body.instructions !== undefined) fields.instructions = String(body.instructions || "");
         if (body.notify !== undefined) fields.notify = !!body.notify;
+        if (body.askFirst !== undefined) fields.askFirst = !!body.askFirst;
+        if (body.planFirst !== undefined) fields.planFirst = !!body.planFirst;
+        if (body.autoCommit !== undefined) fields.autoCommit = !!body.autoCommit;
+        if (body.protect !== undefined) {
+          fields.protect = String(body.protect || "").split("\n")
+            .map((x) => x.trim()).filter(Boolean).slice(0, 40);
+        }
         if (body.bashTimeoutMs !== undefined) {
           const t = Number(body.bashTimeoutMs);
           fields.bashTimeoutMs = isFinite(t) && t > 0 ? Math.round(t) : 600000;
@@ -673,6 +736,7 @@ function start(cfg) {
           return;
         }
         takeSnapshot();
+        lastSent = String(m.text);
         const s = ensure();
         if (!s) return;                   /* ensure уже объяснил, что не так */
         blast({ t: "state", busy: true });
@@ -748,6 +812,42 @@ function start(cfg) {
         if (session && !session.closed) session.interrupt();
         blast({ t: "state", busy: false });
         blast({ t: "ui", e: { type: "note", text: "Stopped. Say what to do instead." } });
+        return;
+      }
+
+      if (m.t === "session_meta" && m.id) {
+        const meta = Object.assign({}, cfg.sessionMeta || {});
+        const cur = Object.assign({}, meta[m.id] || {});
+        if (m.title !== undefined) cur.title = String(m.title || "").slice(0, 80) || undefined;
+        if (m.pinned !== undefined) cur.pinned = !!m.pinned;
+        meta[m.id] = cur;
+        Object.assign(cfg, config.patch({ sessionMeta: meta }));
+        blast({ t: "sessions_changed" });
+        return;
+      }
+
+      if (m.t === "retry") {
+        if (!lastSent) { blast({ t: "error", message: "Nothing to try again yet." }); return; }
+        const text = lastSent;
+        takeSnapshot();
+        const s2 = ensure();
+        if (!s2) return;
+        blast({ t: "state", busy: true });
+        blast({ t: "ui", e: { type: "note", text: "Trying that again." } });
+        try { s2.send(text); } catch (e) { blast({ t: "error", message: String(e.message || e) }); }
+        return;
+      }
+
+      if (m.t === "restore" && typeof m.i === "number") {
+        restoreTo(m.i, (err) => {
+          if (err) blast({ t: "error", message: "Could not go back: " + err });
+          else blast({ t: "ui", e: { type: "note", text: "Back to how things were " + new Date(checkpoints[m.i].at).toLocaleTimeString() + "." } });
+        });
+        return;
+      }
+
+      if (m.t === "checkpoints") {
+        blast({ t: "checkpoints", list: checkpoints.map((c, i) => ({ i, at: c.at, label: c.label })) });
         return;
       }
 

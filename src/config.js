@@ -29,7 +29,12 @@ const DEFAULTS = {
   meterTokens: null,
   meterCost: null,
   bashTimeoutMs: 600000,     /* 2 минуты по умолчанию у Клода — на телефоне мало */
-  notify: true               /* позвать, когда ход закончен */
+  notify: true,              /* позвать, когда ход закончен */
+  sessionMeta: {},           /* { id: { title, pinned } } — свои имена сессий */
+  protect: [],               /* пути, которые агент не трогает */
+  askFirst: false,           /* спрашивать перед правкой */
+  autoCommit: false,         /* коммитить каждый ход */
+  planFirst: false           /* сначала план, потом дела */
 };
 
 function load() {
