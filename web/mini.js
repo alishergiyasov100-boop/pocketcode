@@ -290,6 +290,48 @@
 
   /* ---------- элементы ленты ---------- */
   /* строка-пометка в ленте: в отличие от тоста её видно и через минуту */
+  var GLOSS = {
+    "commit": "A save point in the project's history. You can always come back to it.",
+    "branch": "A parallel copy of the project where you can try things without breaking the main one.",
+    "git": "The thing that remembers every version of your files.",
+    "dependency": "Someone else's code your project uses.",
+    "npm": "The tool that fetches other people's code for you.",
+    "build": "Turning your source files into the thing people actually run.",
+    "server": "A program that waits for requests and answers them.",
+    "port": "A numbered door on your phone. The app listens behind one.",
+    "repository": "The folder git watches over. Often just called a repo.",
+    "merge": "Bringing two lines of work back together.",
+    "deploy": "Putting your thing somewhere other people can open it."
+  };
+  function glossify(node) {
+    var words = Object.keys(GLOSS);
+    var re = new RegExp("\\b(" + words.join("|") + ")\\b", "gi");
+    var walk = function (n) {
+      for (var i = 0; i < n.childNodes.length; i++) {
+        var c = n.childNodes[i];
+        if (c.nodeType === 3) {
+          var txt = c.data;
+          if (!re.test(txt)) { re.lastIndex = 0; continue; }
+          re.lastIndex = 0;
+          var frag = document.createDocumentFragment(), last = 0, m;
+          while ((m = re.exec(txt))) {
+            frag.appendChild(document.createTextNode(txt.slice(last, m.index)));
+            var w = el("button", "gloss", m[0]); w.type = "button";
+            w.addEventListener("click", function (term) {
+              return function (e) { e.stopPropagation(); toast(GLOSS[term.toLowerCase()]); };
+            }(m[0]));
+            frag.appendChild(w);
+            last = m.index + m[0].length;
+          }
+          frag.appendChild(document.createTextNode(txt.slice(last)));
+          c.parentNode.replaceChild(frag, c);
+        } else if (c.nodeType === 1 && !c.classList.contains("gloss")) walk(c);
+      }
+    };
+    walk(node);
+    return node;
+  }
+
   function addNote(text) {
     var n = el("div", "note");
     n.appendChild(ic("dot", 13, 3, "var(--ink3)"));
@@ -301,8 +343,13 @@
 
   /* план агента, который обновляется по ходу дела */
   var todoCard = null;
+  var todoState = { items: [], done: 0 };
   function showTodos(items) {
     if (!items || !items.length) return;
+    todoState.items = items;
+    todoState.done = items.filter(function (i) { return i.state === "completed"; }).length;
+    var now = items.filter(function (i) { return i.state === "in_progress"; })[0];
+    if (now) setStrip(now.text + "  ·  " + (todoState.done + 1) + " of " + items.length, null, "pc-ring-px");
     var fresh = el("div", "todos");
     var done = items.filter(function (i) { return i.state === "completed"; }).length;
     var head = el("div", "todos__h");
@@ -1075,6 +1122,56 @@
     })["catch"](function () { toast("Could not read that file", "bad"); });
   }
 
+  /* 43, 44 — после хода всегда есть, что спросить дальше */
+  var NEXT = [
+    { when: /\.css|style|design|цвет/i, ask: ["Make it look better on a phone", "Add a dark mode"] },
+    { when: /test|тест/i, ask: ["Run the tests and fix what fails"] },
+    { when: /index\.html|\.jsx?$|\.tsx?$/i, ask: ["Show me how it looks", "Add one more feature to it"] },
+    { when: /readme|\.md$/i, ask: ["Explain this project to a beginner"] },
+    { when: /package\.json/i, ask: ["Start it and show me"] }
+  ];
+  function nextSteps(files) {
+    var out = [];
+    (files || []).forEach(function (f) {
+      NEXT.forEach(function (n) {
+        if (n.when.test(f.path)) n.ask.forEach(function (a) { if (out.indexOf(a) < 0) out.push(a); });
+      });
+    });
+    if (out.indexOf("Show me how it looks") < 0) out.push("Show me how it looks");
+    out.push("What should I do next?");
+    fillChips(out.slice(0, 4));
+  }
+
+  /* кнопка после хода: пусть расскажет по-человечески, что сделал */
+  function offerErrorHelp(label, out) {
+    var n = el("div", "note");
+    n.appendChild(ic("cross", 13, 2.6, "var(--bad)"));
+    n.appendChild(el("span", "", "That step failed."));
+    var b = button("What does this mean?", false, function () {
+      b.disabled = true;
+      send("The step \"" + label + "\" failed with this output:\n\n" + String(out || "").slice(0, 1200) +
+           "\n\nExplain in plain words what went wrong and fix it.");
+    });
+    b.classList.add("note__go");
+    n.appendChild(b);
+    feed.appendChild(n);
+    scroll();
+  }
+
+  function offerExplain() {
+    var n = el("div", "note");
+    n.appendChild(ic("dot", 13, 3, "var(--ink3)"));
+    n.appendChild(el("span", "", "Not sure what just happened?"));
+    var b = button("Explain it simply", false, function () {
+      b.disabled = true;
+      send("Explain what you just did, in plain words, as if I am new to this. No code unless it helps.");
+    });
+    b.classList.add("note__go");
+    n.appendChild(b);
+    feed.appendChild(n);
+    scroll();
+  }
+
   /* сводка «что изменилось» в конце хода */
   function showChanges(files) {
     if (!files || !files.length) return;
@@ -1287,6 +1384,29 @@
   showIdle();
   setStrip(null);
 
+  /* первый запуск: не тур по кнопкам, а настоящее маленькое дело */
+  function firstTimeCard() {
+    var first = true;
+    try { first = !localStorage.getItem("pc-seen"); } catch (e) {}
+    if (!first) return;
+    try { localStorage.setItem("pc-seen", "1"); } catch (e) {}
+    var card = el("div", "chg");
+    var h = el("div", "chg__h");
+    h.appendChild(el("span", "chg__t", "First time? Pick one"));
+    card.appendChild(h);
+    [
+      "Make me a one-page site about something I like",
+      "Build a tiny game I can play on my phone",
+      "Look at this project and tell me what it is"
+    ].forEach(function (t) {
+      var r = el("button", "chg__r"); r.type = "button";
+      r.appendChild(el("span", "chg__n2", t));
+      r.addEventListener("click", function () { card.remove(); send(t); });
+      card.appendChild(r);
+    });
+    feed.appendChild(card);
+  }
+
   applyQuiet();
   pet = new E.Pet(app, 3);
   setTimeout(function () { petEvent("app_opened"); }, 400);
@@ -1301,6 +1421,8 @@
     showTodos: showTodos, stopAgent: stopAgent,
     openCheckpoints: openCheckpoints, setCheckpoints: setCheckpoints, addWarn: addWarn,
     showChanges: showChanges, showDiff: showDiff, showFile: showFile, openTree: openTree,
+    offerExplain: offerExplain, glossify: glossify,
+    nextSteps: nextSteps, offerErrorHelp: offerErrorHelp, firstTimeCard: firstTimeCard,
     setRun: setRun, addRunLog: addRunLog, reloadPreview: reloadPreview,
     clearIdle: clearIdle, fillChips: fillChips, petAct: petAct, petEvent: petEvent,
     petTyping: function (on) { if (pet && pet.typing) pet.typing(on); },
