@@ -67,12 +67,17 @@
       ready = true;
       var was = U.state && U.state.project;
       if (U.state) U.state.project = p.project || null;
+      if (p.model && p.model !== "default" && U.setModel) U.setModel(p.model);
       if (U.refreshIdle) U.refreshIdle();
       if (p.project && was && was !== p.project && U.addNote) U.addNote("Now working in " + p.project);
       U.toast("Connected to " + (p.project || "your project"));
       return;
     }
-    if (p.t === "usage") { U.showAccount && U.showAccount(p.u); return; }
+    if (p.t === "usage") {
+      U.showAccount && U.showAccount(p.u);
+      if (p.u && p.u.model && p.u.model !== "default" && U.setModel) U.setModel(p.u.model);
+      return;
+    }
     if (p.t === "cleared") { tools = {}; if (U.state) U.state.project = null; strip(p.resumed ? "Picked up where it left off" : "Ready", "", "pc-dot-fade"); U.petEvent && U.petEvent("app_opened"); U.firstTimeCard && U.firstTimeCard(); return; }
     if (p.t === "state") {
       U.setBusy(p.busy);

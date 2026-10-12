@@ -162,6 +162,19 @@ After that `pocketcode` started from Termux notices it cannot run the
 agent where it stands and moves the daemon into the container by itself.
 Same folders, same port, nothing to remember.
 
+## What it costs to open
+
+The interface is fifteen source files and 438 KB. The daemon now serves it
+as one script and one stylesheet, concatenated in the order the page lists
+them, and gzips anything textual: 382 KB of JavaScript leaves as 75. Four
+requests instead of eighteen, and the page is interactive in about 480 ms
+instead of 720 on this phone.
+
+The bundle is rebuilt whenever a file under web/ changes — checked at most
+once a second — so editing a file and reloading shows the edit. Without
+that the daemon happily served yesterday's code until someone restarted
+it, which is a miserable thing to debug.
+
 ## Memory
 
 The agent runs with `--bare`, which is what keeps it fast and lets it

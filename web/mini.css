@@ -1450,3 +1450,21 @@ button {
 .mem__i:focus { border-color: var(--ink3); }
 .mem__a { display: flex; gap: 8px; }
 .mem__a .pnl__btn { flex: 1; }
+
+/* «подумай подольше» — читаемая кнопка, а не точка */
+.think {
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: none; color: var(--ink3);
+  font: inherit; font-size: 11px; letter-spacing: .04em;
+}
+.think[data-on="true"] { color: var(--solid-ink); background: var(--solid); border-color: var(--solid); }
+
+/* строка расхода: имени плана хватает места, модель ужимается первой */
+.acct .pc-strip-plan { flex: 0 0 auto; white-space: nowrap; }
+.acct .pc-strip-model { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* пилюля всегда по центру, сколько бы кнопок ни было по бокам */
+.bar__l, .bar__r { flex: 1 1 0; display: flex; align-items: center; gap: 2px; min-width: 0; }
+.bar__r { justify-content: flex-end; }

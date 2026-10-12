@@ -61,8 +61,9 @@
   var burgerBtn = el("button", "ibtn"); burgerBtn.type = "button";
   burgerBtn.setAttribute("aria-label", "Menu");
   burgerBtn.appendChild(ic("burger", 21));
-  bar.appendChild(burgerBtn);
-  bar.appendChild(el("div", "bar__sp"));
+  var barL = el("div", "bar__l");
+  barL.appendChild(burgerBtn);
+  bar.appendChild(barL);
 
   var modelPill = el("button", "mpill"); modelPill.type = "button";
   var mpBrand = el("span", "mpill__b");
@@ -73,11 +74,9 @@
   modelPill.appendChild(mpChev);
   bar.appendChild(modelPill);
 
-  bar.appendChild(el("div", "bar__sp"));
+  var barR = el("div", "bar__r");
 
-  var quietBtn = el("button", "ibtn"); quietBtn.type = "button";
-  quietBtn.setAttribute("aria-label", "Simple view");
-  quietBtn.appendChild(ic("fold", 19, 2));
+  var quietBtn = el("button", "ibtn"); quietBtn.type = "button";   /* живёт в настройках, не в шапке */
   var quiet = false;
   try { quiet = localStorage.getItem("pc-quiet") === "1"; } catch (e) {}
   function applyQuiet() {
@@ -85,22 +84,22 @@
     quietBtn.setAttribute("data-on", String(quiet));
     try { localStorage.setItem("pc-quiet", quiet ? "1" : "0"); } catch (e) {}
   }
-  quietBtn.addEventListener("click", function () {
-    quiet = !quiet; applyQuiet();
+  function setQuiet(v) {
+    quiet = v; applyQuiet();
     toast(quiet ? "Just the conversation" : "Every step shown");
     scroll();
-  });
-  bar.appendChild(quietBtn);
+  }
 
   var searchBtn = el("button", "ibtn"); searchBtn.type = "button";
   searchBtn.setAttribute("aria-label", "Find");
   searchBtn.appendChild(ic("search", 18, 2));
-  bar.appendChild(searchBtn);
+  barR.appendChild(searchBtn);
 
   var histBtn = el("button", "ibtn"); histBtn.type = "button";
   histBtn.setAttribute("aria-label", "Sessions");
   histBtn.appendChild(ic("clock", 20));
-  bar.appendChild(histBtn);
+  barR.appendChild(histBtn);
+  bar.appendChild(barR);
   app.appendChild(bar);
 
   var strip = el("div", "strip"); strip.setAttribute("data-on", "false");
@@ -162,9 +161,9 @@
   });
   ibar.appendChild(pasteBtn);
 
-  var deepBtn = el("button", "cbtn"); deepBtn.type = "button";
+  var deepBtn = el("button", "think"); deepBtn.type = "button";
   deepBtn.setAttribute("aria-label", "Think longer");
-  deepBtn.appendChild(ic("dot", 17, 3));
+  deepBtn.appendChild(el("span", "", "think"));
   deepBtn.addEventListener("click", function () {
     var on = deepBtn.getAttribute("data-on") !== "true";
     deepBtn.setAttribute("data-on", String(on));
@@ -940,6 +939,15 @@
     });
     return order.map(function (k) { return by[k]; });
   }
+  /* живой режим знает настоящую модель — шапка должна её показывать */
+  function setModel(id) {
+    if (!id) return;
+    var b = brandOfModel(id);
+    st.model = id;
+    if (b[1]) st.brand = b[1];
+    syncModel();
+  }
+
   function fetchModels(cb) {
     if (!window.PC_LIVE) return cb(C.models, null);
     fetch("/api/models").then(function (r) { return r.json(); }).then(function (j) {
@@ -1569,7 +1577,11 @@
   function syncModel() {
     mpBrand.textContent = "";
     mpBrand.appendChild(E.brand(st.brand, 16));
-    var short = st.model.replace(/^(Claude|Kimi|Gemini|Mistral|Llama|DeepSeek)\s/, "");
+    /* в пилюлю влезает имя, а не идентификатор сборки */
+    var short = String(st.model)
+      .replace(/-\d{8}$/, "")
+      .replace(/^(claude|gpt|gemini|kimi|deepseek|mistral|llama|qwen|glm)[-\s]/i, "")
+      .replace(/^(Claude|Kimi|Gemini|Mistral|Llama|DeepSeek)\s/, "");
     mpName.textContent = short;
     mmName.textContent = short;
   }
@@ -1622,6 +1634,7 @@
     nextSteps: nextSteps, offerErrorHelp: offerErrorHelp, firstTimeCard: firstTimeCard,
     setRun: setRun, addRunLog: addRunLog, reloadPreview: reloadPreview,
     clearIdle: clearIdle, fillChips: fillChips, petAct: petAct, petEvent: petEvent,
+    quiet: function () { return quiet; }, setQuiet: setQuiet,
     refreshIdle: function () { if (idle) { clearIdle(); showIdle(); } },
     petTyping: function (on) { if (pet && pet.typing) pet.typing(on); },
     el: el, ind: ind, ic: ic, feed: feed, input: ta,
@@ -1654,7 +1667,8 @@
     setSender: function (fn) { SEND = fn; },
     openModels: openModels, openPerms: openPerms, openLimits: openLimits,
     openSessions: openSessions, openProjects: openProjects, clearFeed: clearFeed,
-    fetchModels: fetchModels, newSession: function () { pickSession({ sid: "__new" }); },
+    fetchModels: fetchModels, setModel: setModel,
+    newSession: function () { pickSession({ sid: "__new" }); },
     showAccount: showAccount, syncModel: function () { syncModel(); },
     usage: function () { return usageData; },
     pet: function () { return pet; },

@@ -729,6 +729,13 @@
 
       var c3 = group(b, "App");
       row(c3, {
+        title: "Just the conversation",
+        desc: "Hide every tool step from the feed",
+        toggle: true,
+        value: U.quiet ? U.quiet() : false,
+        onToggle: function (v) { U.setQuiet && U.setQuiet(v); }
+      });
+      row(c3, {
         title: "Reply language",
         desc: "What it answers in, not the app's own words",
         value: langLabel(),

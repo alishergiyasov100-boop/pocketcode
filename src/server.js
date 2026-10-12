@@ -64,8 +64,9 @@ function start(cfg) {
   function accountBits() {
     const a = acct.data;
     if (!a) return {};
-    const label = [a.typeLabel || a.type, a.plan && a.plan !== a.type ? a.plan : null]
-      .filter(Boolean).join(" · ");
+    /* в шапке мало места: одно слово полезнее двух обрезанных */
+    const label = (a.plan && a.plan !== a.type ? String(a.plan) : String(a.typeLabel || a.type || "account"))
+      .replace(/\s*key\s*$/i, "");
     const n = (v) => (typeof v === "number" && isFinite(v) ? v : null);
     return {
       plan: label || "Account",
@@ -277,6 +278,14 @@ function start(cfg) {
     } catch (e) {}
   }
 
+  /* claude-sonnet-4-6-20251101 в полоску не влезает и ничего не добавляет */
+  function shortModel(m) {
+    if (!m) return null;
+    return String(m)
+      .replace(/-\d{8}$/, "")        /* дата сборки ничего не говорит */
+      .replace(/^claude-/, "");      /* дефисы в номере версии оставляем */
+  }
+
   let sessionSince = Date.now();
   let lastSent = null;
   let lastFinish = null;
@@ -318,7 +327,7 @@ function start(cfg) {
       today: { cost: day.cost, tokens: day.tokens, turns: day.turns, since: day.since },
       allowance: cfg.allowance || null,     /* { limitUsd, usedUsd, resetsAt } если задано */
       project: path.basename(cfg.project),
-      activeModel: cfg.model || null,
+      activeModel: shortModel(cfg.model),
       gatewayName: cfg.baseUrl ? String(cfg.baseUrl).replace(/^https?:\/\//, "").split("/")[0] : null,
       ...accountBits(),
       ...ledgerBits()       /* наш лимит важнее того, что говорит про себя ключ */
@@ -458,10 +467,16 @@ function start(cfg) {
 
   /* поиск приезжает отдельным MCP-сервером; без ключа его просто нет */
   const SEARCH_TOOLS = ["mcp__search__web_search", "mcp__search__web_read"];
-  /* штамп меняется от любой правки интерфейса, не только от смены версии */
-  const STAMP = (() => {
-    let v = "1";
-    try { v = String(require("../package.json").version).replace(/[^0-9a-z.]/gi, ""); } catch (e) {}
+  /* Штамп и бандл идут от времени правки файлов. Пересчитываем не чаще
+     раза в секунду — иначе демон отдаёт вчерашний код до перезапуска,
+     а это ровно тот сорт ошибки, который ищешь полдня. */
+  let VER = "1";
+  try { VER = String(require("../package.json").version).replace(/[^0-9a-z.]/gi, ""); } catch (e) {}
+  let stampAt = 0, stampVal = VER, stampMtime = 0;
+  function stamp() {
+    const now = Date.now();
+    if (now - stampAt < 1000) return stampVal;
+    stampAt = now;
     let newest = 0;
     try {
       for (const f of fs.readdirSync(WEB)) {
@@ -469,11 +484,53 @@ function start(cfg) {
         if (st.mtimeMs > newest) newest = st.mtimeMs;
       }
     } catch (e) {}
-    return v + "-" + Math.round(newest / 1000).toString(36);
-  })();
+    if (newest !== stampMtime) {
+      stampMtime = newest;
+      bundles.js = null; bundles.css = null;        /* файлы поменялись — склеим заново */
+      stampVal = VER + "-" + Math.round(newest / 1000).toString(36);
+    }
+    return stampVal;
+  }
   function stamped(html) {
     return String(html).replace(/(src|href)="([a-z0-9_.-]+\.(?:js|css))"/gi,
-      (m, a, f) => a + '="' + f + "?v=" + STAMP + '"');
+      (m, a, f) => a + '="' + f + "?v=" + stamp() + '"');
+  }
+
+  const bundles = {};
+  const zlib = require("zlib");
+
+  /* текст жмём: 438 КБ исходников превращаются в сотню */
+  function sendBody(req, res, buf, type) {
+    const head = {
+      "content-type": type,
+      "cache-control": "no-store, no-cache, must-revalidate",
+      "pragma": "no-cache",
+      "expires": "0"
+    };
+    const ae = String(req.headers["accept-encoding"] || "");
+    const text = /text\/|javascript|json|svg/.test(type);
+    if (text && /\bgzip\b/.test(ae) && buf.length > 1024) {
+      const z = zlib.gzipSync(buf, { level: 6 });
+      head["content-encoding"] = "gzip";
+      head["vary"] = "accept-encoding";
+      res.writeHead(200, head);
+      res.end(z);
+      return;
+    }
+    res.writeHead(200, head);
+    res.end(buf);
+  }
+
+  /* страница просит один скрипт и один стиль вместо пятнадцати */
+  function bundled(html) {
+    if (!/<script src=/.test(html)) return html;
+    let first = true;
+    html = html.replace(/<link rel="stylesheet" href="[^"]+"[^>]*>\s*/g, () =>
+      first ? (first = false, '<link rel="stylesheet" href="bundle.css?v=' + stamp() + '">\n') : "");
+    let firstJs = true;
+    html = html.replace(/<script src="[^"]+"><\/script>\s*/g, () =>
+      firstJs ? (firstJs = false, '<script src="bundle.js?v=' + stamp() + '"></script>\n') : "");
+    return html;
   }
 
   function mcpFor(c) {
@@ -1044,21 +1101,36 @@ function start(cfg) {
       return;
     }
 
+    /* Пятнадцать файлов — пятнадцать запросов на телефоне. Склеиваем
+       в один, порядок берём из самой страницы, результат держим в памяти. */
+    if (url === "/bundle.js" || url === "/bundle.css") {
+      const kind = url.endsWith(".js") ? "js" : "css";
+      stamp();                       /* вдруг файлы изменились с прошлого раза */
+      if (!bundles[kind]) {
+        let page = "";
+        try { page = fs.readFileSync(path.join(WEB, "index.html"), "utf8"); } catch (e) {}
+        const re = kind === "js" ? /<script src="([^"]+)"/g : /<link rel="stylesheet" href="([^"]+)"/g;
+        const parts = [];
+        let m;
+        while ((m = re.exec(page))) {
+          const f = m[1].split("?")[0];
+          try { parts.push("/* " + f + " */\n" + fs.readFileSync(path.join(WEB, f), "utf8")); }
+          catch (e) {}
+        }
+        bundles[kind] = Buffer.from(parts.join("\n;\n"));
+      }
+      sendBody(req, res, bundles[kind], TYPES[kind === "js" ? ".js" : ".css"]);
+      return;
+    }
+
     let file = url === "/" ? "index.html" : url.replace(/^\/+/, "");
     const full = path.join(WEB, file);
     if (!full.startsWith(WEB)) { res.writeHead(403).end("no"); return; }
     fs.readFile(full, (err, buf) => {
       if (err) { res.writeHead(404, { "content-type": "text/plain" }).end("not found"); return; }
       const type = TYPES[path.extname(full)] || "application/octet-stream";
-      /* в странице проставляем версию в адреса — кэш WebView иначе живучий */
-      const body = /\.html$/i.test(full) ? Buffer.from(stamped(buf.toString("utf8"))) : buf;
-      res.writeHead(200, {
-        "content-type": type,
-        "cache-control": "no-store, no-cache, must-revalidate",
-        "pragma": "no-cache",
-        "expires": "0"
-      });
-      res.end(body);
+      const body = /\.html$/i.test(full) ? Buffer.from(bundled(stamped(buf.toString("utf8")))) : buf;
+      sendBody(req, res, body, type);
     });
   });
 
