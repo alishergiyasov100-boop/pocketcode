@@ -1311,3 +1311,51 @@ button {
   background: var(--sunk); border-radius: 7px; padding: 4px 7px;
   overflow-x: auto; white-space: pre;
 }
+
+/* что изменилось за ход */
+.chg {
+  margin: 10px 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--card);
+}
+.chg__h { padding: 9px 12px; border-bottom: 1px solid var(--line); }
+.chg__t { font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--ink3); }
+.chg__r {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 9px 12px;
+  border: 0; border-top: 1px solid var(--line);
+  background: none; color: var(--ink);
+  font: inherit; font-size: 12.5px; text-align: left;
+}
+.chg__r:first-of-type { border-top: 0; }
+.chg__n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+.chg__d { display: flex; gap: 6px; font-size: 11px; font-variant-numeric: tabular-nums; }
+.chg__a { color: var(--ok); }
+.chg__m { color: var(--bad); }
+.chg__new { color: var(--ink3); }
+
+/* просмотр кода и диффа */
+.sheet__b.code { max-height: 62vh; overflow: auto; }
+.diff {
+  margin: 0; padding: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px; line-height: 1.55;
+  white-space: pre;
+  color: var(--ink2);
+  tab-size: 2;
+}
+.diff .add { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); display: block; }
+.diff .del { color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, transparent); display: block; }
+.diff .hunk { color: var(--ink3); display: block; margin-top: 6px; }
+.diff .kw { color: #8b5cf6; font-style: normal; }
+.diff .st { color: #16a34a; font-style: normal; }
+.diff .cm { color: var(--ink3); font-style: italic; }
+.diff .nu { color: #ea580c; font-style: normal; }
+:root[data-theme="dark"] .diff .kw { color: #c4b5fd; }
+:root[data-theme="dark"] .diff .st { color: #86efac; }
+:root[data-theme="dark"] .diff .nu { color: #fdba74; }
+.sheet__acts { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); }
+.sheet__acts .btn { flex: 1; }

@@ -87,6 +87,7 @@
     if (e.type === "todos") { U.showTodos && U.showTodos(e.items); return; }
     if (e.type === "note") { U.addNote && U.addNote(e.text); return; }
     if (e.type === "warn") { U.addWarn && U.addWarn(e.text, e.cmd); return; }
+    if (e.type === "changes") { U.showChanges && U.showChanges(e.files); return; }
     if (e.type === "agent") { U.addSay(esc(e.text)); U.petEvent && U.petEvent("agent_thinking"); return; }
     if (e.type === "think") { U.addStep(short(e.text, 140), true); return; }
 

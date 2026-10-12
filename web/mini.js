@@ -577,12 +577,14 @@
       { t: "Past sessions", d: "Pick up where you left off", act: "sessions" },
       { t: "Project folder", d: "Switch what it works on", act: "project" },
       { t: "Run a command", d: "Puts $ in the box, the shell answers", act: "shell" },
+      { t: "Browse the project", d: "Files, with changed ones marked", act: "tree" },
       { t: "Undo last turn", d: "Put the files back as they were", act: "undo" }
     ];
     openSheet("Do", rows, function (r) {
       if (r.act === "new") { pickSession({ sid: "__new" }); return; }
       if (r.act === "sessions") { openSessions(); return; }
       if (r.act === "project") { openProjects(); return; }
+      if (r.act === "tree") { openTree(); return; }
       if (r.act === "undo") {
         if (!window.__pcws) { toast("Start the engine first", "bad"); return; }
         window.__pcws.send(JSON.stringify({ t: "undo" }));
@@ -966,6 +968,137 @@
     return n;
   }
 
+  /* ---------- смотреть код ---------- */
+
+  /* крошечная подсветка: строки, комментарии, числа, ключевые слова.
+     Библиотеку сюда не затащить — CSP артефакта режет внешние скрипты. */
+  /* Один проход, иначе вторая замена начинает калечить разметку первой:
+     слово class в ключевых словах ломало уже вставленные теги. */
+  var TOK = new RegExp([
+    '("(?:[^"\\\\\\n]|\\\\.)*"|\'(?:[^\'\\\\\\n]|\\\\.)*\'|`(?:[^`\\\\]|\\\\.)*`)',
+    '(\\/\\*[\\s\\S]*?\\*\\/|\\/\\/[^\\n]*|#[^\\n]*)',
+    '(\\b\\d+(?:\\.\\d+)?\\b)',
+    '(\\b(?:function|return|const|let|var|if|else|for|while|class|new|import|export|from|async|await|try|catch|throw|typeof|instanceof|this|null|undefined|true|false|def|elif|lambda|None|True|False)\\b)'
+  ].join('|'), 'g');
+
+  function esc(x) {
+    return String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function paint(code) {
+    var src = String(code), out = "", last = 0, m;
+    TOK.lastIndex = 0;
+    while ((m = TOK.exec(src))) {
+      out += esc(src.slice(last, m.index));
+      var cls = m[1] ? "st" : m[2] ? "cm" : m[3] ? "nu" : "kw";
+      out += "<i class=" + cls + ">" + esc(m[0]) + "</i>";
+      last = m.index + m[0].length;
+    }
+    return out + esc(src.slice(last));
+  }
+
+  function codeSheet(title, build, extra) {
+    sheet.textContent = "";
+    var k = el("div", "sheet__k", title);
+    sheet.appendChild(k);
+    var body = el("div", "sheet__b code");
+    sheet.appendChild(body);
+    build(body);
+    if (extra) sheet.appendChild(extra);
+    sheet.setAttribute("data-on", "true");
+    scrim.setAttribute("data-on", "true");
+  }
+
+  function showDiff(file) {
+    fetch("/api/diff?file=" + encodeURIComponent(file)).then(function (r) { return r.json(); }).then(function (j) {
+      codeSheet(file.split("/").pop(), function (body) {
+        if (j.error) { body.appendChild(el("div", "pnl__note", j.error)); return; }
+        var pre = el("pre", "diff");
+        if (j.kind === "whole") {
+          pre.innerHTML = paint(j.body);
+        } else {
+          var html = j.diff.split("\n").map(function (l) {
+            var cls = l[0] === "+" && l[1] !== "+" ? "add"
+                    : l[0] === "-" && l[1] !== "-" ? "del"
+                    : l[0] === "@" ? "hunk" : "";
+            var safe = l.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            return cls ? "<span class=" + cls + ">" + safe + "</span>" : safe;
+          }).join("\n");
+          pre.innerHTML = html;
+        }
+        body.appendChild(pre);
+      }, (function () {
+        var acts = el("div", "sheet__acts");
+        acts.appendChild(button("Copy", false, function () {
+          var t = j.kind === "whole" ? j.body : j.diff;
+          if (navigator.clipboard) navigator.clipboard.writeText(t);
+          toast("Copied");
+        }));
+        if (j.kind !== "whole") {
+          acts.appendChild(button("Put this file back", false, function () {
+            if (window.__pcws) window.__pcws.send(JSON.stringify({ t: "revert_file", path: file }));
+            closeSheet();
+          }));
+        }
+        return acts;
+      })());
+    })["catch"](function () { toast("Could not read that file", "bad"); });
+  }
+
+  function showFile(path) {
+    fetch("/api/file?path=" + encodeURIComponent(path)).then(function (r) { return r.json(); }).then(function (j) {
+      codeSheet(path.split("/").pop(), function (body) {
+        if (j.error) { body.appendChild(el("div", "pnl__note", j.error)); return; }
+        var pre = el("pre", "diff");
+        pre.innerHTML = paint(j.body);
+        body.appendChild(pre);
+      }, (function () {
+        var acts = el("div", "sheet__acts");
+        acts.appendChild(button("Copy", false, function () {
+          if (navigator.clipboard && j.body) navigator.clipboard.writeText(j.body);
+          toast("Copied");
+        }));
+        return acts;
+      })());
+    })["catch"](function () { toast("Could not read that file", "bad"); });
+  }
+
+  /* сводка «что изменилось» в конце хода */
+  function showChanges(files) {
+    if (!files || !files.length) return;
+    var card = el("div", "chg");
+    var head = el("div", "chg__h");
+    head.appendChild(el("span", "chg__t", files.length === 1 ? "1 file changed" : files.length + " files changed"));
+    card.appendChild(head);
+    files.forEach(function (f) {
+      var r = el("button", "chg__r"); r.type = "button";
+      r.appendChild(el("span", "chg__n", f.path));
+      var n = el("span", "chg__d");
+      if (f.add) n.appendChild(el("span", "chg__a", "+" + f.add));
+      if (f.del) n.appendChild(el("span", "chg__m", "\u2212" + f.del));
+      if (f.fresh) n.appendChild(el("span", "chg__new", "new"));
+      r.appendChild(n);
+      r.addEventListener("click", function () { showDiff(f.path); });
+      card.appendChild(r);
+    });
+    feed.appendChild(card);
+    scroll();
+  }
+
+  function openTree() {
+    if (!window.PC_LIVE) { toast("Start the engine first", "bad"); return; }
+    fetch("/api/tree").then(function (r) { return r.json(); }).then(function (j) {
+      var rows = (j.items || []).map(function (i) {
+        return {
+          t: "\u00a0\u00a0".repeat(i.depth) + (i.dir ? i.path.split("/").pop() + "/" : i.path.split("/").pop()),
+          d: i.touched ? "changed in this session" : null,
+          fpath: i.dir ? null : i.path
+        };
+      });
+      openSheet(j.root || "Project", rows, function (r) { if (r.fpath) showFile(r.fpath); });
+    })["catch"](function () { toast("Could not read the project", "bad"); });
+  }
+
   function openSessions() {
     if (!window.PC_LIVE) {
       openSheet("Sessions", sessionRows(C.sessions.map(function (x, i) {
@@ -1051,6 +1184,7 @@
     setStrip: setStrip, setBusy: setBusy, toast: toast, scroll: scroll,
     showTodos: showTodos, stopAgent: stopAgent,
     openCheckpoints: openCheckpoints, setCheckpoints: setCheckpoints, addWarn: addWarn,
+    showChanges: showChanges, showDiff: showDiff, showFile: showFile, openTree: openTree,
     clearIdle: clearIdle, fillChips: fillChips, petAct: petAct, petEvent: petEvent,
     petTyping: function (on) { if (pet && pet.typing) pet.typing(on); },
     el: el, ind: ind, ic: ic, feed: feed, input: ta,

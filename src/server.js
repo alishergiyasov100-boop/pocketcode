@@ -481,7 +481,20 @@ function start(cfg) {
 
       const last = session.lastText || "";
       nudge(last ? last.replace(/\s+/g, " ").slice(0, 140) : "Done.");
-      autoCommit(lastSent || last);
+      git(["diff", "--numstat"], (code, out) => {
+        if (code !== 0) return;
+        const files = (out || "").split("\n").filter(Boolean).map((l) => {
+          const [add, del, name] = l.split("\t");
+          return { path: name, add: +add || 0, del: +del || 0 };
+        });
+        const extra = (session && session.touched) || [];
+        extra.forEach((f) => {
+          const rel = f.replace(cfg.project + "/", "");
+          if (!files.some((x) => x.path === rel)) files.push({ path: rel, add: 0, del: 0, fresh: true });
+        });
+        if (files.length) blast({ t: "ui", e: { type: "changes", files: files.slice(0, 40) } });
+        autoCommit(lastSent || last);
+      });
 
       const u = session.usage();
       day.cost = u.cost;                 /* шлюз отдаёт накопленную стоимость сессии */
@@ -538,6 +551,98 @@ function start(cfg) {
     if (url === "/api/sessions") {
       res.writeHead(200, { "content-type": TYPES[".json"] });
       res.end(JSON.stringify({ sessions: listSessions(), project: path.basename(cfg.project) }));
+      return;
+    }
+
+    /* что изменилось в проекте и как это выглядит */
+    if (url === "/api/changes") {
+      git(["status", "--porcelain=v1", "-z"], (code, out) => {
+        if (code !== 0) {
+          res.writeHead(200, { "content-type": TYPES[".json"] });
+          res.end(JSON.stringify({ git: false, files: [] }));
+          return;
+        }
+        const files = out.split("\0").filter(Boolean).map((line) => {
+          const st = line.slice(0, 2), name = line.replace(/^..\s*/, "");
+          return {
+            path: name,
+            state: /\?/.test(st) ? "new" : (/D/.test(st) ? "gone" : "changed")
+          };
+        });
+        git(["diff", "--numstat"], (c2, nums) => {
+          const by = {};
+          (nums || "").split("\n").filter(Boolean).forEach((l) => {
+            const [add, del, name] = l.split("\t");
+            by[name] = { add: +add || 0, del: +del || 0 };
+          });
+          res.writeHead(200, { "content-type": TYPES[".json"] });
+          res.end(JSON.stringify({
+            git: true,
+            files: files.map((f) => Object.assign(f, by[f.path] || {})).slice(0, 200)
+          }));
+        });
+      });
+      return;
+    }
+
+    if (url.startsWith("/api/diff")) {
+      const want = new URL("http://x" + (req.url || "")).searchParams.get("file") || "";
+      const safe = want.replace(/^\/+/, "");
+      git(["diff", "--", safe], (code, out) => {
+        if (code === 0 && out) {
+          res.writeHead(200, { "content-type": TYPES[".json"] });
+          res.end(JSON.stringify({ path: safe, diff: out.slice(0, 120000), kind: "diff" }));
+          return;
+        }
+        /* нового файла в diff нет — показываем его целиком */
+        fs.readFile(path.join(cfg.project, safe), "utf8", (err, body) => {
+          res.writeHead(200, { "content-type": TYPES[".json"] });
+          res.end(JSON.stringify(err
+            ? { path: safe, error: "could not read it" }
+            : { path: safe, kind: "whole", body: String(body).slice(0, 120000) }));
+        });
+      });
+      return;
+    }
+
+    if (url.startsWith("/api/file")) {
+      const want = (new URL("http://x" + (req.url || "")).searchParams.get("path") || "").replace(/^\/+/, "");
+      const full = path.resolve(cfg.project, want);
+      if (!full.startsWith(path.resolve(cfg.project))) { res.writeHead(403).end("no"); return; }
+      fs.readFile(full, "utf8", (err, body) => {
+        res.writeHead(200, { "content-type": TYPES[".json"] });
+        res.end(JSON.stringify(err
+          ? { path: want, error: "could not read it" }
+          : { path: want, body: String(body).slice(0, 200000) }));
+      });
+      return;
+    }
+
+    if (url === "/api/tree") {
+      const root = cfg.project;
+      const SKIP = /^(node_modules|\.git|dist|build|\.next|__pycache__|\.venv|target)$/;
+      const out = [];
+      (function walk(dir, depth, rel) {
+        if (depth > 3 || out.length > 400) return;
+        let names = [];
+        try { names = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
+        names.sort((a, b) => (b.isDirectory() - a.isDirectory()) || a.name.localeCompare(b.name));
+        for (const d of names) {
+          if (d.name.startsWith(".") && d.name !== ".env") continue;
+          if (SKIP.test(d.name)) continue;
+          const r = rel ? rel + "/" + d.name : d.name;
+          out.push({ path: r, dir: d.isDirectory(), depth });
+          if (d.isDirectory()) walk(path.join(dir, d.name), depth + 1, r);
+        }
+      })(root, 0, "");
+      git(["status", "--porcelain=v1", "-z"], (code, st) => {
+        const touched = new Set((st || "").split("\0").filter(Boolean).map((l) => l.replace(/^..\s*/, "")));
+        res.writeHead(200, { "content-type": TYPES[".json"] });
+        res.end(JSON.stringify({
+          root: path.basename(root),
+          items: out.map((i) => Object.assign(i, { touched: touched.has(i.path) }))
+        }));
+      });
       return;
     }
 
@@ -835,6 +940,15 @@ function start(cfg) {
         blast({ t: "state", busy: true });
         blast({ t: "ui", e: { type: "note", text: "Trying that again." } });
         try { s2.send(text); } catch (e) { blast({ t: "error", message: String(e.message || e) }); }
+        return;
+      }
+
+      if (m.t === "revert_file" && m.path) {
+        const f = String(m.path);
+        git(["checkout", "--", f], (code, _o, err) => {
+          if (code === 0) blast({ t: "ui", e: { type: "note", text: f + " is back as it was." } });
+          else blast({ t: "error", message: "Could not put " + f + " back: " + (err || "git refused") });
+        });
         return;
       }
 
