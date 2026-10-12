@@ -41,6 +41,7 @@ class MainActivity : AppCompatActivity() {
     private val main = Handler(Looper.getMainLooper())
     private var loaded = false
     private var polling = false
+    private var keepListening = false
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(saved: Bundle?) {
@@ -87,7 +88,14 @@ class MainActivity : AppCompatActivity() {
             ).isNotEmpty()
 
         @JavascriptInterface
-        fun startVoice() { main.post { listen() } }
+        fun startVoice() { main.post { keepListening = false; listen() } }
+
+        /** диктовать длинную мысль: распознаватель перезапускается сам */
+        @JavascriptInterface
+        fun startVoiceLong() { main.post { keepListening = true; listen() } }
+
+        @JavascriptInterface
+        fun stopVoice() { main.post { keepListening = false } }
     }
 
     private fun listen() {
@@ -115,8 +123,13 @@ class MainActivity : AppCompatActivity() {
         super.onActivityResult(code, result, data)
         if (code != 42) return
         val text = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
-        if (result == RESULT_OK && !text.isNullOrBlank()) toWeb(text, "")
-        else toWeb("", "")
+        if (result == RESULT_OK && !text.isNullOrBlank()) {
+            toWeb(text, "")
+            if (keepListening) main.postDelayed({ if (keepListening) listen() }, 400)
+        } else {
+            keepListening = false
+            toWeb("", "")
+        }
     }
 
     /** отдать результат странице */

@@ -67,6 +67,7 @@
       ready = true;
       var was = U.state && U.state.project;
       if (U.state) U.state.project = p.project || null;
+      if (U.refreshIdle) U.refreshIdle();
       if (p.project && was && was !== p.project && U.addNote) U.addNote("Now working in " + p.project);
       U.toast("Connected to " + (p.project || "your project"));
       return;

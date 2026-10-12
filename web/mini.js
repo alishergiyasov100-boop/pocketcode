@@ -162,6 +162,16 @@
   });
   ibar.appendChild(pasteBtn);
 
+  var deepBtn = el("button", "cbtn"); deepBtn.type = "button";
+  deepBtn.setAttribute("aria-label", "Think longer");
+  deepBtn.appendChild(ic("dot", 17, 3));
+  deepBtn.addEventListener("click", function () {
+    var on = deepBtn.getAttribute("data-on") !== "true";
+    deepBtn.setAttribute("data-on", String(on));
+    toast(on ? "It will think harder about the next one" : "Back to normal");
+  });
+  ibar.appendChild(deepBtn);
+
   var modelMini = el("button", "modelmini"); modelMini.type = "button";
   var mmName = el("span", "", "");
   modelMini.appendChild(mmName);
@@ -598,12 +608,38 @@
     var v = ta.value.trim();
     if (!v) { var f = chips.querySelector(".chip"); if (f) send(f.textContent); return; }
     ta.value = "";
+    try { localStorage.removeItem("pc-draft"); } catch (e) {}
     grow();
+    if (deepBtn.getAttribute("data-on") === "true") {
+      v = "Think carefully and take your time with this one.\n\n" + v;
+      deepBtn.setAttribute("data-on", "false");
+    }
     send(v);
   }
   ta.addEventListener("input", function () { grow(); if (pet && pet.typing) pet.typing(ta.value.length > 0); });
   ta.addEventListener("keydown", function (e) {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
+  });
+
+  /* @ открывает список файлов — печатать путь на телефоне невозможно */
+  var fileCache = null;
+  ta.addEventListener("input", function () {
+    var v = ta.value;
+    if (v.slice(-1) !== "@" || !window.PC_LIVE) return;
+    var put = function (items) {
+      var rows = items.filter(function (i) { return !i.dir; }).slice(0, 80).map(function (i) {
+        return { t: i.path.split("/").pop(), d: i.path, fpath: i.path };
+      });
+      openSheet("Which file?", rows, function (r) {
+        ta.value = ta.value.replace(/@$/, "") + r.fpath + " ";
+        grow(); ta.focus();
+      });
+    };
+    if (fileCache) { put(fileCache); return; }
+    fetch("/api/tree").then(function (r) { return r.json(); }).then(function (j) {
+      fileCache = j.items || [];
+      put(fileCache);
+    })["catch"](function () {});
   });
   sendBtn.addEventListener("click", function () {
     if (st.busy && window.PC_LIVE) { stopAgent(); return; }
@@ -629,6 +665,7 @@
       { t: "Project folder", d: "Switch what it works on", act: "project" },
       { t: "Run a command", d: "Puts $ in the box, the shell answers", act: "shell" },
       { t: "Run it", d: "Start the project and look at it", act: "run" },
+      { t: "Ready-made asks", d: "Common jobs, already worded", act: "templates" },
       { t: "Browse the project", d: "Files, with changed ones marked", act: "tree" },
       { t: "Undo last turn", d: "Put the files back as they were", act: "undo" }
     ];
@@ -636,6 +673,17 @@
       if (r.act === "new") { pickSession({ sid: "__new" }); return; }
       if (r.act === "sessions") { openSessions(); return; }
       if (r.act === "project") { openProjects(); return; }
+      if (r.act === "templates") {
+        openSheet("Ready-made asks", [
+          { t: "Find the bug", d: "Something is wrong and I cannot say what", ask: "Something is broken. Look through the project, find what it is, explain it to me simply and fix it." },
+          { t: "Make it prettier", d: "Same thing, better looking", ask: "Make this look better on a phone. Keep what it does, change how it looks. Show me before and after." },
+          { t: "Explain this project", d: "I inherited it and I am lost", ask: "Read this project and explain in plain words what it is, what the main files do, and where I would start changing things." },
+          { t: "Add a feature", d: "It asks you what, then does it", ask: "I want to add something to this project. Ask me what it should do, one question at a time, then build it." },
+          { t: "Make it faster", d: "Find the slow part", ask: "Find what makes this slow, measure it if you can, and make it faster without changing what it does." },
+          { t: "Put it online", d: "Somewhere people can open it", ask: "Get this project online somewhere free so I can send a link to a friend. Explain each step as you go." }
+        ], function (r2) { ta.value = r2.ask; grow(); ta.focus(); });
+        return;
+      }
       if (r.act === "run") {
         if (!window.PC_LIVE) { toast("Start the engine first", "bad"); return; }
         if (runState.state === "up" && runState.port) { openPreview(); return; }
@@ -667,13 +715,32 @@
   if (!VOICE) {
     micBtn.style.display = "none";
   } else {
+    var longMode = false;
     micBtn.addEventListener("click", function () {
+      if (longMode) {                       /* второй тап останавливает длинную диктовку */
+        longMode = false;
+        micBtn.removeAttribute("data-on");
+        try { window.PocketNative.stopVoice(); } catch (e) {}
+        toast("Stopped listening");
+        return;
+      }
       micBtn.setAttribute("data-on", "true");
       try { window.PocketNative.startVoice(); }
       catch (e) { micBtn.removeAttribute("data-on"); toast("Could not open the microphone", "bad"); }
     });
+    var mt = null;
+    micBtn.addEventListener("touchstart", function () {
+      mt = setTimeout(function () {
+        longMode = true;
+        micBtn.setAttribute("data-on", "true");
+        try { window.PocketNative.startVoiceLong(); toast("Keep talking, tap again to stop"); }
+        catch (e) { longMode = false; micBtn.removeAttribute("data-on"); }
+      }, 520);
+    }, { passive: true });
+    micBtn.addEventListener("touchend", function () { clearTimeout(mt); });
+    micBtn.addEventListener("touchmove", function () { clearTimeout(mt); });
     window.PCVOICE = function (text, err) {
-      micBtn.removeAttribute("data-on");
+      if (!longMode) micBtn.removeAttribute("data-on");
       if (err) { toast(err, "bad"); return; }
       if (!text) return;
       ta.value = ta.value ? ta.value.replace(/\s*$/, " ") + text : text;
@@ -705,6 +772,11 @@
 
   /* ---------- пустой экран ---------- */
   var idle;
+  function projectLine() {
+    var p = st.project || (window.PCUI && PCUI.state && PCUI.state.project);
+    return p ? "Working in " + p : null;
+  }
+
   function showIdle() {
     idle = el("div", "idle");
     var p = el("div", "idle__pet");
@@ -714,6 +786,12 @@
     var when = h < 6 ? "Still up" : h < 12 ? "Good morning" : h < 19 ? "Good afternoon" : "Good evening";
     idle.appendChild(el("div", "idle__hi", when + ", Alisher"));
     idle.appendChild(el("div", "idle__sub", "Say what needs doing."));
+    var where = projectLine();
+    if (where) {
+      var w = el("button", "idle__where", where); w.type = "button";
+      w.addEventListener("click", openProjects);
+      idle.appendChild(w);
+    }
     feed.appendChild(idle);
   }
   function clearIdle() { if (idle) { idle.remove(); idle = null; } }
@@ -952,8 +1030,10 @@
   function sessionMenu(x) {
     openSheet(x.title || "Session", [
       { t: "Rename", d: "Give it a name you will recognise", act: "rename" },
-      { t: x.pinned ? "Unpin" : "Keep on top", d: x.pinned ? "Back in date order" : "Always first in the list", act: "pin" }
+      { t: x.pinned ? "Unpin" : "Keep on top", d: x.pinned ? "Back in date order" : "Always first in the list", act: "pin" },
+      { t: "Show as a page", d: "Readable version you can show someone", act: "export" }
     ], function (r) {
+      if (r.act === "export") { openPage("/api/export?id=" + encodeURIComponent(x.id), x.title || "Session"); return; }
       if (!window.__pcws) { toast("Start the engine first", "bad"); return; }
       if (r.act === "pin") {
         window.__pcws.send(JSON.stringify({ t: "session_meta", id: x.id, pinned: !x.pinned }));
@@ -1252,6 +1332,26 @@
     runbar.appendChild(x);
   }
 
+  function openPage(url, title) {
+    var wrap = el("div", "prev");
+    var head = el("div", "prev__h");
+    head.appendChild(el("span", "prev__t", title || url));
+    var cp = el("button", "prev__b", "Copy link"); cp.type = "button";
+    cp.addEventListener("click", function () {
+      var full = location.origin + url;
+      if (navigator.clipboard) navigator.clipboard.writeText(full);
+      toast("Copied " + full);
+    });
+    var x = el("button", "prev__b", "Close"); x.type = "button";
+    x.addEventListener("click", function () { wrap.remove(); });
+    head.appendChild(cp); head.appendChild(x);
+    wrap.appendChild(head);
+    var f = document.createElement("iframe");
+    f.className = "prev__f"; f.src = url;
+    wrap.appendChild(f);
+    app.appendChild(wrap);
+  }
+
   function openPreview() {
     if (!runState.port) { toast("It has not told me a port yet"); return; }
     var wrap = el("div", "prev");
@@ -1310,6 +1410,16 @@
       acts.appendChild(button("Stop it", false, function () { ws({ t: "stop_app" }); closeSheet(); }));
       return acts;
     })());
+  }
+
+  function searchSessions(q) {
+    fetch("/api/search_sessions?q=" + encodeURIComponent(q)).then(function (r) { return r.json(); }).then(function (j) {
+      var rows = (j.hits || []).map(function (h) {
+        return { t: h.title || "Untitled", d: h.snippet, sid: h.id };
+      });
+      if (!rows.length) rows = [{ t: "Nothing found", d: "in any past conversation", sid: null }];
+      openSheet("Found \u201c" + q + "\u201d", rows, pickSession);
+    })["catch"](function () { toast("Could not search", "bad"); });
   }
 
   function openSessions() {
@@ -1425,6 +1535,7 @@
     nextSteps: nextSteps, offerErrorHelp: offerErrorHelp, firstTimeCard: firstTimeCard,
     setRun: setRun, addRunLog: addRunLog, reloadPreview: reloadPreview,
     clearIdle: clearIdle, fillChips: fillChips, petAct: petAct, petEvent: petEvent,
+    refreshIdle: function () { if (idle) { clearIdle(); showIdle(); } },
     petTyping: function (on) { if (pet && pet.typing) pet.typing(on); },
     el: el, ind: ind, ic: ic, feed: feed, input: ta,
     startClock: function () { t0 = Date.now(); },

@@ -388,6 +388,8 @@
       state.planFirst = !!j.planFirst;
       state.autoCommit = !!j.autoCommit;
       state.protect = j.protect || "";
+      state.workInCopy = !!j.workInCopy;
+      state.mentor = !!j.mentor;
       if (j.language) state.lang = j.language;
       state.instructions = j.instructions || "";
       cb && cb();
@@ -670,6 +672,13 @@
         onTap: protectPage
       });
       row(cs, {
+        title: "Work on a copy",
+        desc: "A separate git branch, your main line untouched",
+        toggle: true,
+        value: !!state.workInCopy,
+        onToggle: function (v) { state.workInCopy = v; savePrefs({ workInCopy: v }); }
+      });
+      row(cs, {
         title: "Go back in time",
         desc: "Every point before a turn",
         onTap: function () { close(); setTimeout(function () { U.openCheckpoints && U.openCheckpoints(); }, 240); }
@@ -680,6 +689,13 @@
         title: "Ask before acting",
         value: (PC_CONTENT.perms.items.filter(function (p) { return p.on; })[0] || {}).t,
         onTap: function () { close(); setTimeout(function () { U.openPerms && U.openPerms(); }, 240); }
+      });
+      row(c2, {
+        title: "Teach me as you go",
+        desc: "It explains each step in beginner words",
+        toggle: true,
+        value: !!state.mentor,
+        onToggle: function (v) { state.mentor = v; savePrefs({ mentor: v }); }
       });
       row(c2, {
         title: "Tell me when it's done",

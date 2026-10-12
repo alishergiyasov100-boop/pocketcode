@@ -34,7 +34,9 @@ const DEFAULTS = {
   protect: [],               /* пути, которые агент не трогает */
   askFirst: false,           /* спрашивать перед правкой */
   autoCommit: false,         /* коммитить каждый ход */
-  planFirst: false           /* сначала план, потом дела */
+  planFirst: false,          /* сначала план, потом дела */
+  workInCopy: false,         /* отдельная ветка на сессию */
+  mentor: false              /* объяснять каждый шаг новичку */
 };
 
 function load() {

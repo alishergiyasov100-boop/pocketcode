@@ -96,6 +96,19 @@ function start(cfg) {
     p.on("close", (code) => cb(code, out.trim(), err.trim()));
     p.on("error", () => cb(1, "", "no git"));
   }
+  function ensureBranch(cb) {
+    if (!cfg.workInCopy) return cb && cb();
+    git(["rev-parse", "--abbrev-ref", "HEAD"], (code, cur) => {
+      if (code !== 0) return cb && cb();
+      if (/^pocketcode\//.test(cur)) return cb && cb();
+      const name = "pocketcode/" + new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+      git(["checkout", "-b", name], (c2) => {
+        if (c2 === 0) blast({ t: "ui", e: { type: "note", text: "Working on a copy called " + name + ". Your main line is untouched." } });
+        cb && cb();
+      });
+    });
+  }
+
   function takeSnapshot(label) {
     git(["rev-parse", "--is-inside-work-tree"], (code) => {
       if (code !== 0) { snapshot = null; return; }
@@ -266,6 +279,7 @@ function start(cfg) {
 
   let sessionSince = Date.now();
   let lastSent = null;
+  let lastFinish = null;
   function capLabel(L) {
     const bits = [];
     if (L.cap.turns) bits.push(L.cap.turns + " turns");
@@ -494,6 +508,12 @@ function start(cfg) {
       bits.push("Write every reply to the user in " + lang +
                 ". Keep code, file paths, commands and identifiers as they are.");
     }
+    if (c.mentor) {
+      bits.push("The person you are working with is new to programming. " +
+        "Before each step say in one plain sentence what you are about to do and why. " +
+        "Avoid jargon; when you must use a term, explain it in half a line. " +
+        "At the end, say what they could try next.");
+    }
     if (c.instructions && c.instructions.trim()) bits.push(c.instructions.trim());
     return bits.join("\n\n");
   }
@@ -586,6 +606,7 @@ function start(cfg) {
         }
         autoCommit(lastSent || last);
       });
+      if (last) lastFinish = { at: Date.now(), text: last.replace(/\s+/g, " ") };
 
       const u = session.usage();
       day.cost = u.cost;                 /* шлюз отдаёт накопленную стоимость сессии */
@@ -646,6 +667,61 @@ function start(cfg) {
     }
 
     /* что изменилось в проекте и как это выглядит */
+    /* 31 — поиск по всем прошлым разговорам */
+    if (url.startsWith("/api/search_sessions")) {
+      const q = (new URL("http://x" + (req.url || "")).searchParams.get("q") || "").toLowerCase();
+      const out = [];
+      if (q.length >= 2) {
+        let names = [];
+        try { names = fs.readdirSync(sessionsDir()).filter((f) => f.endsWith(".jsonl")); } catch (e) {}
+        for (const f of names.slice(0, 60)) {
+          let raw = "";
+          try { raw = fs.readFileSync(path.join(sessionsDir(), f), "utf8"); } catch (e) { continue; }
+          const at = raw.toLowerCase().indexOf(q);
+          if (at < 0) continue;
+          const id = f.replace(/\.jsonl$/, "");
+          const meta = (cfg.sessionMeta || {})[id] || {};
+          let snippet = raw.slice(Math.max(0, at - 60), at + 90).replace(/[{}"\\]|\s+/g, " ").trim();
+          out.push({ id, title: meta.title || titleOf(path.join(sessionsDir(), f)), snippet });
+          if (out.length >= 20) break;
+        }
+      }
+      res.writeHead(200, { "content-type": TYPES[".json"] });
+      res.end(JSON.stringify({ hits: out }));
+      return;
+    }
+
+    /* 34 — показать разговор страницей, которую не стыдно отправить другу */
+    if (url.startsWith("/api/export")) {
+      const id = (new URL("http://x" + (req.url || "")).searchParams.get("id") || "").replace(/[^a-z0-9-]/gi, "");
+      let raw = "";
+      try { raw = fs.readFileSync(path.join(sessionsDir(), id + ".jsonl"), "utf8"); } catch (e) {}
+      const esc = (x) => String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const parts = [];
+      raw.split("\n").filter(Boolean).forEach((line) => {
+        let ev; try { ev = JSON.parse(line); } catch (e) { return; }
+        const msg = ev.message || {};
+        for (const c of msg.content || []) {
+          if (c.type === "text" && c.text && c.text.trim()) {
+            parts.push('<div class="' + (msg.role === "user" ? "you" : "it") + '">' + esc(c.text) + "</div>");
+          } else if (c.type === "tool_use") {
+            parts.push('<div class="step">' + esc(c.name) + "</div>");
+          }
+        }
+      });
+      const html = '<!doctype html><meta charset="utf-8"><meta name=viewport content="width=device-width,initial-scale=1">' +
+        "<title>PocketCode</title><style>" +
+        "body{font:15px/1.6 ui-sans-serif,system-ui;margin:0;padding:22px;background:#faf9f7;color:#1a1a1c;max-width:720px;margin:auto}" +
+        ".you{background:#1a1a1c;color:#fff;padding:10px 14px;border-radius:16px 16px 4px 16px;margin:14px 0 14px auto;max-width:78%;width:fit-content}" +
+        ".it{margin:14px 0;white-space:pre-wrap}" +
+        ".step{font:12px ui-monospace,monospace;color:#8a8a92;margin:6px 0}" +
+        "h1{font-size:17px;letter-spacing:.02em}" +
+        "</style><h1>Made with PocketCode</h1>" + (parts.join("") || "<p>Nothing in this one.</p>");
+      res.writeHead(200, { "content-type": TYPES[".html"], "cache-control": "no-store" });
+      res.end(html);
+      return;
+    }
+
     if (url === "/api/changes") {
       git(["status", "--porcelain=v1", "-z"], (code, out) => {
         if (code !== 0) {
@@ -776,6 +852,8 @@ function start(cfg) {
         askFirst: !!cfg.askFirst,
         planFirst: !!cfg.planFirst,
         autoCommit: !!cfg.autoCommit,
+        workInCopy: !!cfg.workInCopy,
+        mentor: !!cfg.mentor,
         protect: (cfg.protect || []).join("\n")
       }));
       return;
@@ -794,6 +872,8 @@ function start(cfg) {
         if (body.askFirst !== undefined) fields.askFirst = !!body.askFirst;
         if (body.planFirst !== undefined) fields.planFirst = !!body.planFirst;
         if (body.autoCommit !== undefined) fields.autoCommit = !!body.autoCommit;
+        if (body.workInCopy !== undefined) fields.workInCopy = !!body.workInCopy;
+        if (body.mentor !== undefined) fields.mentor = !!body.mentor;
         if (body.protect !== undefined) {
           fields.protect = String(body.protect || "").split("\n")
             .map((x) => x.trim()).filter(Boolean).slice(0, 40);
@@ -908,7 +988,12 @@ function start(cfg) {
   refreshAccount();                       /* чтобы шапка знала про ключ сразу */
 
   attach(server, "/ws", (sock) => {
+    const away = clients.size === 0 && lastFinish && (Date.now() - lastFinish.at > 20000);
     clients.add(sock);
+    if (away) {
+      sock.send(JSON.stringify({ t: "ui", e: { type: "note",
+        text: "While you were away it finished: " + lastFinish.text.slice(0, 120) } }));
+    }
     refreshAccount().then((a) => { if (a) sock.send(JSON.stringify({ t: "usage", u: usageSnapshot() })); });
     sock.send(JSON.stringify({ t: "usage", u: usageSnapshot() }));
     sock.send(JSON.stringify({
@@ -931,6 +1016,7 @@ function start(cfg) {
           blast({ t: "state", busy: false });
           return;
         }
+        ensureBranch();
         takeSnapshot();
         lastSent = String(m.text);
         const s = ensure();
