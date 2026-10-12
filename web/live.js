@@ -20,6 +20,7 @@
       retry = 0; gone = false;
       strip("Connected", "ok", "pc-done");
       U.petEvent && U.petEvent("connection_restored");
+      ws.send(JSON.stringify({ t: "run_state" }));
       setTimeout(function () { if (!U.state.busy) strip("Ready", "", "pc-dot-fade"); }, 1200);
     };
 
@@ -80,6 +81,9 @@
     if (p.t === "error") { offerRetry(p.message || "Something broke"); U.setBusy(false); return; }
     if (p.t === "sessions_changed") return;
     if (p.t === "checkpoints") { U.setCheckpoints && U.setCheckpoints(p.list); return; }
+    if (p.t === "run") { U.setRun && U.setRun(p); return; }
+    if (p.t === "run_log") { U.addRunLog && U.addRunLog(p.text); return; }
+    if (p.t === "files_changed") { U.reloadPreview && U.reloadPreview(); return; }
     if (p.t !== "ui") return;
 
     var e = p.e;

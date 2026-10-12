@@ -117,6 +117,10 @@
   find.appendChild(findIn); find.appendChild(findN); find.appendChild(findX);
   app.appendChild(find);
 
+  /* полоса запущенного приложения живёт под строкой состояния */
+  var runbar = el("div", "runbar"); runbar.setAttribute("data-on", "false");
+  app.appendChild(runbar);
+
   var stage = el("div", "stage");
   var feed = el("div", "feed");
   stage.appendChild(feed);
@@ -577,6 +581,7 @@
       { t: "Past sessions", d: "Pick up where you left off", act: "sessions" },
       { t: "Project folder", d: "Switch what it works on", act: "project" },
       { t: "Run a command", d: "Puts $ in the box, the shell answers", act: "shell" },
+      { t: "Run it", d: "Start the project and look at it", act: "run" },
       { t: "Browse the project", d: "Files, with changed ones marked", act: "tree" },
       { t: "Undo last turn", d: "Put the files back as they were", act: "undo" }
     ];
@@ -584,6 +589,13 @@
       if (r.act === "new") { pickSession({ sid: "__new" }); return; }
       if (r.act === "sessions") { openSessions(); return; }
       if (r.act === "project") { openProjects(); return; }
+      if (r.act === "run") {
+        if (!window.PC_LIVE) { toast("Start the engine first", "bad"); return; }
+        if (runState.state === "up" && runState.port) { openPreview(); return; }
+        ws({ t: "run_app" });
+        toast("Starting it");
+        return;
+      }
       if (r.act === "tree") { openTree(); return; }
       if (r.act === "undo") {
         if (!window.__pcws) { toast("Start the engine first", "bad"); return; }
@@ -1099,6 +1111,110 @@
     })["catch"](function () { toast("Could not read the project", "bad"); });
   }
 
+  /* ---------- запуск и просмотр ---------- */
+  var runState = { state: "idle", port: null, cmd: null, log: "", lan: null };
+
+  function ws(obj) { if (window.__pcws) window.__pcws.send(JSON.stringify(obj)); }
+
+  function setRun(p) {
+    if (p.state) runState.state = p.state;
+    if (p.port !== undefined && p.port !== null) runState.port = p.port;
+    if (p.cmd !== undefined) runState.cmd = p.cmd;
+    if (p.lan) runState.lan = p.lan;
+    if (p.log) runState.log = p.log;
+    if (p.state === "stopped" || p.state === "idle") { runState.port = null; runState.cmd = null; }
+    drawRun();
+  }
+  function addRunLog(text) {
+    runState.log = (runState.log + text).slice(-16000);
+    if (logPre && logPre.isConnected) { logPre.textContent = runState.log; logPre.scrollTop = logPre.scrollHeight; }
+  }
+
+  var logPre = null;
+  function drawRun() {
+    var on = runState.state === "starting" || runState.state === "up";
+    runbar.setAttribute("data-on", String(on));
+    runbar.textContent = "";
+    if (!on) return;
+    runbar.appendChild(ind(runState.state === "up" ? "pc-dot-fade" : "pc-ring-px"));
+    var t = el("span", "runbar__t", runState.state === "up"
+      ? (runState.cmd || "running") + (runState.port ? " · :" + runState.port : "")
+      : "starting " + (runState.cmd || ""));
+    runbar.appendChild(t);
+    runbar.appendChild(el("div", "runbar__sp"));
+    if (runState.port) {
+      var o = el("button", "runbar__b", "Open"); o.type = "button";
+      o.addEventListener("click", openPreview);
+      runbar.appendChild(o);
+    }
+    var l = el("button", "runbar__b", "Logs"); l.type = "button";
+    l.addEventListener("click", openLogs);
+    runbar.appendChild(l);
+    var x = el("button", "runbar__b runbar__b--off", "Stop"); x.type = "button";
+    x.addEventListener("click", function () { ws({ t: "stop_app" }); });
+    runbar.appendChild(x);
+  }
+
+  function openPreview() {
+    if (!runState.port) { toast("It has not told me a port yet"); return; }
+    var wrap = el("div", "prev");
+    var head = el("div", "prev__h");
+    head.appendChild(el("span", "prev__t", "localhost:" + runState.port));
+    var share = el("button", "prev__b", "Share"); share.type = "button";
+    share.addEventListener("click", function () {
+      var url = runState.lan ? "http://" + runState.lan + ":" + runState.port : "http://127.0.0.1:" + runState.port;
+      if (navigator.clipboard) navigator.clipboard.writeText(url);
+      toast(runState.lan ? "Copied " + url : "Only this phone can open it — no network address");
+    });
+    head.appendChild(share);
+    var live = el("button", "prev__b", "Live"); live.type = "button";
+    live.setAttribute("data-on", "true");
+    live.addEventListener("click", function () {
+      var on = live.getAttribute("data-on") !== "true";
+      live.setAttribute("data-on", String(on));
+      toast(on ? "Reloads itself when files change" : "Reload by hand now");
+    });
+    head.appendChild(live);
+
+    var re = el("button", "prev__b", "Reload"); re.type = "button";
+    var x = el("button", "prev__b", "Close"); x.type = "button";
+    x.addEventListener("click", function () { wrap.remove(); });
+    head.appendChild(re); head.appendChild(x);
+    wrap.appendChild(head);
+    var f = document.createElement("iframe");
+    f.className = "prev__f";
+    f.src = "http://127.0.0.1:" + runState.port + "/";
+    re.addEventListener("click", function () { f.src = f.src; });
+    wrap.appendChild(f);
+    app.appendChild(wrap);
+
+    /* живое обновление: агент поправил файл — страница перечиталась */
+    wrap._reload = function () {
+      if (live.getAttribute("data-on") !== "true") return;
+      f.src = f.src;
+    };
+    previewWrap = wrap;        /* живость проверяем по isConnected, без устаревших событий */
+  }
+
+  var previewWrap = null;
+  function reloadPreview() { if (previewWrap && previewWrap.isConnected) previewWrap._reload(); }
+
+  function openLogs() {
+    codeSheet("Output", function (body) {
+      logPre = el("pre", "diff");
+      logPre.textContent = runState.log || "(nothing yet)";
+      body.appendChild(logPre);
+    }, (function () {
+      var acts = el("div", "sheet__acts");
+      acts.appendChild(button("Copy", false, function () {
+        if (navigator.clipboard) navigator.clipboard.writeText(runState.log || "");
+        toast("Copied");
+      }));
+      acts.appendChild(button("Stop it", false, function () { ws({ t: "stop_app" }); closeSheet(); }));
+      return acts;
+    })());
+  }
+
   function openSessions() {
     if (!window.PC_LIVE) {
       openSheet("Sessions", sessionRows(C.sessions.map(function (x, i) {
@@ -1185,6 +1301,7 @@
     showTodos: showTodos, stopAgent: stopAgent,
     openCheckpoints: openCheckpoints, setCheckpoints: setCheckpoints, addWarn: addWarn,
     showChanges: showChanges, showDiff: showDiff, showFile: showFile, openTree: openTree,
+    setRun: setRun, addRunLog: addRunLog, reloadPreview: reloadPreview,
     clearIdle: clearIdle, fillChips: fillChips, petAct: petAct, petEvent: petEvent,
     petTyping: function (on) { if (pet && pet.typing) pet.typing(on); },
     el: el, ind: ind, ic: ic, feed: feed, input: ta,

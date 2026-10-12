@@ -163,6 +163,94 @@ function start(cfg) {
     });
   }
 
+  /* ---------- запустить то, что он сделал ----------
+     Половина удовольствия от вайб-кодинга — увидеть свою штуку живой,
+     а не прочитать, что файл записан. */
+  let running = null;              /* { proc, cmd, port, log, startedAt } */
+
+  function guessRun() {
+    const P = (f) => path.join(cfg.project, f);
+    try {
+      const pkg = JSON.parse(fs.readFileSync(P("package.json"), "utf8"));
+      const sc = pkg.scripts || {};
+      for (const name of ["dev", "start", "serve", "preview"]) {
+        if (sc[name]) return { cmd: "npm run " + name, kind: "node", what: "npm run " + name };
+      }
+      if (pkg.main) return { cmd: "node " + pkg.main, kind: "node", what: "node " + pkg.main };
+    } catch (e) {}
+    for (const f of ["app.py", "main.py", "server.py"]) {
+      if (fs.existsSync(P(f))) return { cmd: "python " + f, kind: "python", what: "python " + f };
+    }
+    if (fs.existsSync(P("index.html"))) {
+      return {
+        cmd: process.execPath + " " + JSON.stringify(path.join(__dirname, "static.js")) +
+             " " + JSON.stringify(cfg.project) + " 8765",
+        kind: "static", port: 8765, what: "a little web server on 8765"
+      };
+    }
+    return null;
+  }
+
+  const PORT_RE = /(?:https?:\/\/[^\s]*?:|port\s*:?\s*|listening on\s+(?:port\s+)?)(\d{4,5})/i;
+
+  function runApp() {
+    if (running) { blast({ t: "run", state: "already", cmd: running.cmd, port: running.port }); return; }
+    const g = guessRun();
+    if (!g) {
+      blast({ t: "error", message: "I cannot tell how to start this project. Ask the agent to add a start script." });
+      return;
+    }
+    const proc = spawn("sh", ["-c", g.cmd], { cwd: cfg.project, env: process.env });
+    running = { proc, cmd: g.cmd, what: g.what, port: g.port || null, log: "", startedAt: Date.now() };
+    blast({ t: "run", state: "starting", cmd: g.cmd, what: g.what });
+
+    const take = (d) => {
+      const chunk = String(d);
+      running.log = (running.log + chunk).slice(-16000);
+      if (!running.port) {
+        const m = chunk.match(PORT_RE);
+        if (m) {
+          running.port = +m[1];
+          blast({ t: "run", state: "up", cmd: g.cmd, port: running.port });
+        }
+      }
+      blast({ t: "run_log", text: chunk.slice(-2000) });
+    };
+    proc.stdout.on("data", take);
+    proc.stderr.on("data", take);
+    proc.on("close", (code) => {
+      const tail = (running && running.log || "").trim().split("\n").slice(-2).join(" ").slice(0, 160);
+      const quick = running && (Date.now() - running.startedAt) < 2500;
+      blast({ t: "run", state: "stopped", code, why: code && quick ? (tail || "it exited straight away") : null });
+      if (code && quick && tail) blast({ t: "error", message: "It could not start: " + tail });
+      running = null;
+    });
+    proc.on("error", (e) => {
+      blast({ t: "error", message: "Could not start it: " + e.message });
+      running = null;
+    });
+    if (g.port) setTimeout(() => { if (running) blast({ t: "run", state: "up", cmd: g.cmd, port: g.port }); }, 900);
+  }
+
+  function stopApp() {
+    if (!running) return;
+    try { process.kill(-running.proc.pid, "SIGTERM"); } catch (e) {
+      try { running.proc.kill("SIGTERM"); } catch (e2) {}
+    }
+    blast({ t: "run", state: "stopped", code: null });
+    running = null;
+  }
+
+  function lanAddress() {
+    const nets = require("os").networkInterfaces();
+    for (const name of Object.keys(nets)) {
+      for (const n of nets[name] || []) {
+        if (n.family === "IPv4" && !n.internal) return n.address;
+      }
+    }
+    return null;
+  }
+
   /* ---------- позвать, когда дело сделано ---------- */
   function nudge(text) {
     if (!cfg.notify) return;
@@ -492,7 +580,10 @@ function start(cfg) {
           const rel = f.replace(cfg.project + "/", "");
           if (!files.some((x) => x.path === rel)) files.push({ path: rel, add: 0, del: 0, fresh: true });
         });
-        if (files.length) blast({ t: "ui", e: { type: "changes", files: files.slice(0, 40) } });
+        if (files.length) {
+          blast({ t: "ui", e: { type: "changes", files: files.slice(0, 40) } });
+          if (running) blast({ t: "files_changed" });   /* превью обновится само */
+        }
         autoCommit(lastSent || last);
       });
 
@@ -940,6 +1031,15 @@ function start(cfg) {
         blast({ t: "state", busy: true });
         blast({ t: "ui", e: { type: "note", text: "Trying that again." } });
         try { s2.send(text); } catch (e) { blast({ t: "error", message: String(e.message || e) }); }
+        return;
+      }
+
+      if (m.t === "run_app") { runApp(); return; }
+      if (m.t === "stop_app") { stopApp(); return; }
+      if (m.t === "run_state") {
+        blast({ t: "run", state: running ? (running.port ? "up" : "starting") : "idle",
+                cmd: running ? running.cmd : null, port: running ? running.port : null,
+                lan: lanAddress(), log: running ? running.log.slice(-4000) : "" });
         return;
       }
 
