@@ -143,6 +143,27 @@ Five things the terminal gives you that a phone needs more, not less:
   your working tree. "Undo last turn" in the + menu puts the files back,
   including work you had not committed. Files it newly created stay.
 
+## Memory
+
+The agent runs with `--bare`, which is what keeps it fast and lets it
+authenticate with a plain key — but bare also switches off auto-memory and
+CLAUDE.md discovery, so by default it forgot your project between
+sessions. Checked rather than assumed: a codeword written into CLAUDE.md
+was invisible to it.
+
+So PocketCode carries memory itself. Two plain files, read at the start of
+every session and handed over in the system prompt:
+
+- `<project>/CLAUDE.md` — what this project is. The agent edits it with
+  its own tools, and real Claude Code in that folder reads it too.
+- `~/.pocketcode/memory.md` — you, and how you like to work. Applies
+  everywhere.
+
+Settings -> What it remembers opens both for editing, with a button that
+asks the agent to fill the project one in by reading the code. Holding any
+line in the conversation offers to remember it, for this project or
+everywhere; repeats are ignored rather than piling up.
+
 ## How it works
 
 ```

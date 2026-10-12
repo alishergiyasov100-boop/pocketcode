@@ -691,6 +691,11 @@
         onTap: function () { close(); setTimeout(function () { U.openPerms && U.openPerms(); }, 240); }
       });
       row(c2, {
+        title: "What it remembers",
+        desc: "Facts it carries into every session",
+        onTap: function () { close(); setTimeout(function () { U.openMemory && U.openMemory(); }, 240); }
+      });
+      row(c2, {
         title: "Teach me as you go",
         desc: "It explains each step in beginner words",
         toggle: true,

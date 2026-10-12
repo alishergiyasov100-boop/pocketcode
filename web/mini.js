@@ -385,10 +385,38 @@
     scroll();
   }
 
-  function addYou(text) { var n = el("div", "you", text); feed.appendChild(n); scroll(); return n; }
+  /* долгое нажатие на любую реплику: запомнить, скопировать */
+  function holdable(node, getText) {
+    var tm = null, fired = false;
+    var open = function () {
+      fired = true;
+      var text = getText();
+      openSheet("This line", [
+        { t: "Remember for this project", d: "It will know next time too", act: "project" },
+        { t: "Remember everywhere", d: "In every project", act: "global" },
+        { t: "Copy", d: null, act: "copy" }
+      ], function (r) {
+        if (r.act === "copy") { if (navigator.clipboard) navigator.clipboard.writeText(text); toast("Copied"); return; }
+        if (!window.__pcws) { toast("Start the engine first", "bad"); return; }
+        window.__pcws.send(JSON.stringify({ t: "remember", where: r.act, text: text }));
+      });
+    };
+    node.addEventListener("touchstart", function () { fired = false; tm = setTimeout(open, 520); }, { passive: true });
+    node.addEventListener("touchend", function () { clearTimeout(tm); });
+    node.addEventListener("touchmove", function () { clearTimeout(tm); });
+    node.addEventListener("contextmenu", function (e) { e.preventDefault(); open(); });
+    return node;
+  }
+
+  function addYou(text) {
+    var n = el("div", "you", text);
+    holdable(n, function () { return n.textContent; });
+    feed.appendChild(n); scroll(); return n;
+  }
 
   function addSay(html, done) {
     var n = el("div", "say");
+    holdable(n, function () { return n.textContent; });
     feed.appendChild(n); scroll();
     type(n, html, 62, done);
     return n;
@@ -1422,6 +1450,64 @@
     })["catch"](function () { toast("Could not search", "bad"); });
   }
 
+  /* ---------- память ---------- */
+  function openMemory() {
+    if (!window.PC_LIVE) { toast("Start the engine first", "bad"); return; }
+    fetch("/api/memory").then(function (r) { return r.json(); }).then(function (j) {
+      var wrap = el("div", "prev");
+      var head = el("div", "prev__h");
+      head.appendChild(el("span", "prev__t", "What it remembers"));
+      var x = el("button", "prev__b", "Close"); x.type = "button";
+      x.addEventListener("click", function () { wrap.remove(); });
+      head.appendChild(x);
+      wrap.appendChild(head);
+
+      var body = el("div", "mem");
+      body.appendChild(el("div", "mem__n",
+        "Read at the start of every session. The agent can write here itself, " +
+        "and so can you. Keep it short — this rides along with every message."));
+
+      function block(title, note, value, key) {
+        var g = el("div", "mem__g");
+        g.appendChild(el("div", "mem__t", title));
+        g.appendChild(el("div", "mem__d", note));
+        var t = document.createElement("textarea");
+        t.className = "mem__i"; t.rows = 8; t.value = value || "";
+        t.setAttribute("spellcheck", "false");
+        g.appendChild(t);
+        body.appendChild(g);
+        return t;
+      }
+
+      var gi = block("Everywhere", "About you and how you like to work · " + j.globalFile.replace(/^.*\/home\//, "~/"), j.global);
+      var pi = block("This project", j.projectName + " · its own CLAUDE.md", j.project);
+
+      var acts = el("div", "mem__a");
+      var save = el("button", "pnl__btn pnl__btn--go", "Save"); save.type = "button";
+      save.addEventListener("click", function () {
+        save.disabled = true; save.textContent = "Saving\u2026";
+        fetch("/api/memory", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ global: gi.value, project: pi.value })
+        }).then(function () { toast("It will read this from now on"); wrap.remove(); })
+        ["catch"](function () { save.disabled = false; save.textContent = "Save"; toast("The engine did not answer", "bad"); });
+      });
+      acts.appendChild(save);
+      var ask = el("button", "pnl__btn", "Let it fill this in"); ask.type = "button";
+      ask.addEventListener("click", function () {
+        wrap.remove();
+        send("Look at this project and write down in CLAUDE.md what a newcomer would need to know: " +
+             "what it is, how to run it, the conventions you see. Short bullet points, no fluff. " +
+             "If CLAUDE.md already has things, keep them.");
+      });
+      acts.appendChild(ask);
+      body.appendChild(acts);
+
+      wrap.appendChild(body);
+      app.appendChild(wrap);
+    })["catch"](function () { toast("Could not read the memory", "bad"); });
+  }
+
   function openSessions() {
     if (!window.PC_LIVE) {
       openSheet("Sessions", sessionRows(C.sessions.map(function (x, i) {
@@ -1531,6 +1617,7 @@
     showTodos: showTodos, stopAgent: stopAgent,
     openCheckpoints: openCheckpoints, setCheckpoints: setCheckpoints, addWarn: addWarn,
     showChanges: showChanges, showDiff: showDiff, showFile: showFile, openTree: openTree,
+    holdable: holdable, openMemory: openMemory,
     offerExplain: offerExplain, glossify: glossify,
     nextSteps: nextSteps, offerErrorHelp: offerErrorHelp, firstTimeCard: firstTimeCard,
     setRun: setRun, addRunLog: addRunLog, reloadPreview: reloadPreview,

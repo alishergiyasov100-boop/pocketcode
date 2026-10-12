@@ -501,8 +501,49 @@ function start(cfg) {
     ko: "Korean", zh: "Chinese", kk: "Kazakh", uz: "Uzbek", az: "Azerbaijani",
     vi: "Vietnamese", he: "Hebrew"
   };
+  /* ---------- память ----------
+     Флаг --bare выключает авто-память и чтение CLAUDE.md, поэтому
+     подаём её сами. Файлы обычные: CLAUDE.md в проекте (его же правит
+     и сам агент) и memory.md рядом с конфигом — на все проекты сразу. */
+  const MEM_CAP = 8000;
+  function memPaths() {
+    return {
+      project: path.join(cfg.project, "CLAUDE.md"),
+      global: path.join(config.DIR, "memory.md")
+    };
+  }
+  function readMem() {
+    const p2 = memPaths();
+    const get = (f) => { try { return fs.readFileSync(f, "utf8"); } catch (e) { return ""; } };
+    return { project: get(p2.project), global: get(p2.global), paths: p2 };
+  }
+  function memoryBlock() {
+    if (cfg.memory === false) return "";
+    const m = readMem();
+    const bits = [];
+    if (m.global.trim()) bits.push("What you know about this person and how they like to work:\n" + m.global.trim().slice(0, MEM_CAP));
+    if (m.project.trim()) bits.push("What you know about this project (from its CLAUDE.md):\n" + m.project.trim().slice(0, MEM_CAP));
+    if (!bits.length) return "";
+    return bits.join("\n\n") + "\n\nTreat the above as established. Do not ask again about what it already says.";
+  }
+  function rememberLine(where, text) {
+    const m = memPaths();
+    const file = where === "global" ? m.global : m.project;
+    const line = "- " + String(text).replace(/\s+/g, " ").trim().slice(0, 300) + "\n";
+    let now = "";
+    try { now = fs.readFileSync(file, "utf8"); } catch (e) {}
+    if (now.indexOf(line.trim()) >= 0) return false;      /* уже записано */
+    if (!now.trim()) now = (where === "global" ? "# About me\n\n" : "# About this project\n\n");
+    else if (!now.endsWith("\n")) now += "\n";
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, now + line);
+    return true;
+  }
+
   function systemFor(c) {
     const bits = [];
+    const mem = memoryBlock();
+    if (mem) bits.push(mem);
     const lang = c.replyLanguageName || LANGS[c.replyLanguage];
     if (lang && c.replyLanguage !== "en") {
       bits.push("Write every reply to the user in " + lang +
@@ -841,6 +882,42 @@ function start(cfg) {
       return;
     }
 
+    if (url === "/api/memory" && req.method === "GET") {
+      const m = readMem();
+      res.writeHead(200, { "content-type": TYPES[".json"] });
+      res.end(JSON.stringify({
+        on: cfg.memory !== false,
+        project: m.project,
+        global: m.global,
+        projectFile: m.paths.project,
+        globalFile: m.paths.global,
+        projectName: path.basename(cfg.project)
+      }));
+      return;
+    }
+
+    if (url === "/api/memory" && req.method === "POST") {
+      readBody(req).then((body) => {
+        const m = memPaths();
+        if (body.on !== undefined) Object.assign(cfg, config.patch({ memory: !!body.on }));
+        if (body.project !== undefined) {
+          fs.writeFileSync(m.project, String(body.project));
+        }
+        if (body.global !== undefined) {
+          fs.mkdirSync(path.dirname(m.global), { recursive: true });
+          fs.writeFileSync(m.global, String(body.global));
+        }
+        if (body.remember) rememberLine(body.where === "global" ? "global" : "project", body.remember);
+        if (session && !session.closed) { session.stop(); session = null; }   /* перечитает на следующем ходе */
+        res.writeHead(200, { "content-type": TYPES[".json"] });
+        res.end(JSON.stringify({ ok: true }));
+      }).catch(() => {
+        res.writeHead(400, { "content-type": TYPES[".json"] });
+        res.end(JSON.stringify({ ok: false }));
+      });
+      return;
+    }
+
     if (url === "/api/prefs" && req.method === "GET") {
       res.writeHead(200, { "content-type": TYPES[".json"] });
       res.end(JSON.stringify({
@@ -1117,6 +1194,14 @@ function start(cfg) {
         blast({ t: "state", busy: true });
         blast({ t: "ui", e: { type: "note", text: "Trying that again." } });
         try { s2.send(text); } catch (e) { blast({ t: "error", message: String(e.message || e) }); }
+        return;
+      }
+
+      if (m.t === "remember" && m.text) {
+        const added = rememberLine(m.where === "global" ? "global" : "project", m.text);
+        blast({ t: "ui", e: { type: "note",
+          text: added ? "Noted. It will know this next time too." : "It already knew that." } });
+        if (added && session && !session.closed) { session.stop(); session = null; }
         return;
       }
 

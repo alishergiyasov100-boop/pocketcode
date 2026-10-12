@@ -36,7 +36,8 @@ const DEFAULTS = {
   autoCommit: false,         /* коммитить каждый ход */
   planFirst: false,          /* сначала план, потом дела */
   workInCopy: false,         /* отдельная ветка на сессию */
-  mentor: false              /* объяснять каждый шаг новичку */
+  mentor: false,             /* объяснять каждый шаг новичку */
+  memory: true               /* подавать CLAUDE.md и memory.md в каждую сессию */
 };
 
 function load() {
